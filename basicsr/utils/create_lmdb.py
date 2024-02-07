@@ -74,6 +74,31 @@ def create_lmdb_for_gopro():
     # img_path_list, keys = prepare_keys(folder_path, 'png')
     # make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys)
 
+def create_lmdb_for_mvimgnet():
+    folder_path = './datasets/MVImgNet-blur/input'
+    lmdb_path = './datasets/MVImgNet-blur/blur_crops.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/MVImgNet-blur/target'
+    lmdb_path = './datasets/MVImgNet-blur/sharp_crops.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    # folder_path = './datasets/GoPro/test/target'
+    # lmdb_path = './datasets/GoPro/test/target.lmdb'
+
+    # img_path_list, keys = prepare_keys(folder_path, 'png')
+    # make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys)
+
+    # folder_path = './datasets/GoPro/test/input'
+    # lmdb_path = './datasets/GoPro/test/input.lmdb'
+
+    # img_path_list, keys = prepare_keys(folder_path, 'png')
+    # make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys)
+
 def create_lmdb_for_rain13k():
     folder_path = './datasets/Rain13k/train/input'
     lmdb_path = './datasets/Rain13k/train/input.lmdb'

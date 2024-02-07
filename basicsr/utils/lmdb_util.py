@@ -139,6 +139,9 @@ def make_lmdb_from_imgs(data_path,
     txn.commit()
     env.close()
     txt_file.close()
+
+    del dataset, shapes
+
     print('\nFinish writing lmdb.')
 
 
