@@ -15,8 +15,8 @@ datasets:
   train:
     name: gopro-train
     type: PairedImageDataset
-    dataroot_gt: ./datasets/GoPro/train/sharp_crops.lmdb
-    dataroot_lq: ./datasets/GoPro/train/blur_crops.lmdb
+    dataroot_gt: ./datasets/GoPro_Large/train/target.lmdb
+    dataroot_lq: ./datasets/GoPro_Large/train/input.lmdb
 
     filename_tmpl: '{}'
     io_backend:
@@ -36,8 +36,8 @@ datasets:
   val:
     name: gopro-test
     type: PairedImageDataset
-    dataroot_gt: ./datasets/GoPro/test/target.lmdb
-    dataroot_lq: ./datasets/GoPro/test/input.lmdb
+    dataroot_gt: ./datasets/GoPro_Large/test/target.lmdb
+    dataroot_lq: ./datasets/GoPro_Large/test/input.lmdb
     io_backend:
       type: lmdb
 

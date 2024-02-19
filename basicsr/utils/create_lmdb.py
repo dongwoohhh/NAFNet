@@ -49,6 +49,28 @@ def create_lmdb_for_reds():
     make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys)
 
 
+def create_lmdb_for_gopro_gamma():
+    
+    folder_path = './datasets/GoPro_Large/train/target'
+    lmdb_path = './datasets/GoPro_Large/train/target.lmdb'
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/GoPro_Large/train/input'
+    lmdb_path = './datasets/GoPro_Large/train/input.lmdb'
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/GoPro_Large/test/target'
+    lmdb_path = './datasets/GoPro_Large/test/test_sharp.lmdb'
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/GoPro_Large/test/input'
+    lmdb_path = './datasets/GoPro_Large/test/test_blur.lmdb'
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
 def create_lmdb_for_gopro():
     folder_path = './datasets/GoPro/train/blur_crops'
     lmdb_path = './datasets/GoPro/train/blur_crops.lmdb'
@@ -76,13 +98,13 @@ def create_lmdb_for_gopro():
 
 def create_lmdb_for_mvimgnet():
     folder_path = './datasets/MVImgNet-blur/input'
-    lmdb_path = './datasets/MVImgNet-blur/blur_crops.lmdb'
+    lmdb_path = './datasets/MVImgNet-blur/train_blur.lmdb'
 
     img_path_list, keys = prepare_keys(folder_path, 'png')
     make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
 
     folder_path = './datasets/MVImgNet-blur/target'
-    lmdb_path = './datasets/MVImgNet-blur/sharp_crops.lmdb'
+    lmdb_path = './datasets/MVImgNet-blur/train_sharp.lmdb'
 
     img_path_list, keys = prepare_keys(folder_path, 'png')
     make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
@@ -98,6 +120,72 @@ def create_lmdb_for_mvimgnet():
 
     # img_path_list, keys = prepare_keys(folder_path, 'png')
     # make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys)
+
+def create_lmdb_for_rsblur():
+    """
+    folder_path = './datasets/RSBlur/train/input_2'
+    lmdb_path = './datasets/RSBlur/train/train_blur.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/RSBlur/train/target_2'
+    lmdb_path = './datasets/RSBlur/train/train_sharp.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+    """
+    folder_path = './datasets/RSBlur/test/input_2'
+    lmdb_path = './datasets/RSBlur/test/test_blur.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/RSBlur/test/target_2'
+    lmdb_path = './datasets/RSBlur/test/test_sharp.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+
+def create_lmdb_for_rsblur_crop():
+    folder_path = './datasets/RSBlur/train/blur_crops'
+    lmdb_path = './datasets/RSBlur/train/blur_crops.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    #make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/RSBlur/train/sharp_crops'
+    lmdb_path = './datasets/RSBlur/train/sharp_crops.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+def create_lmdb_for_bsd():
+    folder_path = './datasets/BSD/input'
+    lmdb_path = './datasets/BSD/train_blur.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/BSD/target'
+    lmdb_path = './datasets/BSD/train_sharp.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+def create_lmdb_for_bsd_test():
+    folder_path = './datasets/BSD/test/input'
+    lmdb_path = './datasets/BSD/test/test_blur.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
+
+    folder_path = './datasets/BSD/test/target'
+    lmdb_path = './datasets/BSD/test/test_sharp.lmdb'
+
+    img_path_list, keys = prepare_keys(folder_path, 'png')
+    make_lmdb_from_imgs(folder_path, lmdb_path, img_path_list, keys, multiprocessing_read=True)
 
 def create_lmdb_for_rain13k():
     folder_path = './datasets/Rain13k/train/input'

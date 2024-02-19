@@ -10,14 +10,13 @@ from torchvision.transforms.functional import normalize
 from basicsr.data.data_util import (paired_paths_from_folder,
                                     paired_paths_from_lmdb,
                                     paired_paths_from_meta_info_file)
-from basicsr.data.transforms import augment, paired_random_crop
+from basicsr.data.transforms import augment, paired_random_crop_gaussian
 from basicsr.utils import FileClient, imfrombytes, img2tensor, padding
-
 
 import imageio
 import numpy as np 
 
-class PairedImageDataset(data.Dataset):
+class MVImgNetDataset(data.Dataset):
     """Paired image dataset for image restoration.
 
     Read LQ (Low Quality, e.g. LR (Low Resolution), blurry, noisy, etc) and
@@ -49,7 +48,7 @@ class PairedImageDataset(data.Dataset):
     """
 
     def __init__(self, opt):
-        super(PairedImageDataset, self).__init__()
+        super(MVImgNetDataset, self).__init__()
         self.opt = opt
         # file client (io backend)
         self.file_client = None
@@ -90,6 +89,7 @@ class PairedImageDataset(data.Dataset):
         gt_path = self.paths[index]['gt_path']
         # print('gt path,', gt_path)
         img_bytes = self.file_client.get(gt_path, 'gt')
+        
         try:
             img_gt = imfrombytes(img_bytes, float32=True)
         except:
@@ -103,16 +103,41 @@ class PairedImageDataset(data.Dataset):
         except:
             raise Exception("lq path {} not working".format(lq_path))
 
-
+        
         # augmentation for training
         if self.opt['phase'] == 'train':
             gt_size = self.opt['gt_size']
             # padding
             img_gt, img_lq = padding(img_gt, img_lq, gt_size)
+            
+            """
+            img_gt, img_lq = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
+                                                         gt_path)
+            """
+            #std_rgb = 0.
+            #count = 0
+            
+            #while(std_rgb < 10. or count > 5):
+            max_iter = 5
+            for i_crop in range(max_iter):
+                # random crop
+                img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
+                                                            gt_path)
+                
+                img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
+                std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
+                
+                if std_rgb > 20. or i_crop == max_iter - 1:
+                    img_gt_out = img_gt_crop
+                    img_lq_out = img_lq_crop
+                    break
 
-            # random crop
-            img_gt, img_lq = paired_random_crop(img_gt, img_lq, gt_size, scale,
-                                                gt_path)
+            img_gt = img_gt_out
+            img_lq = img_lq_out
+            #count += 1
+            #print(std_rgb, count)
+            
+            
             # flip, rotation
             img_gt, img_lq = augment([img_gt, img_lq], self.opt['use_flip'],
                                      self.opt['use_rot'])
@@ -122,22 +147,19 @@ class PairedImageDataset(data.Dataset):
         img_gt, img_lq = img2tensor([img_gt, img_lq],
                                     bgr2rgb=True,
                                     float32=True)
-
         """
-        # To visualize patch
         idx =  np.random.randint(100000)
-        count=0
         #print(img_lq.permute(1, 2, 0).numpy().shape)
         img_lq_uint8 = (255*img_lq.permute(1, 2, 0).numpy()).astype(np.uint8)
-        std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
-        imageio.imwrite(f'debug_gopro/{idx}_blurred_{std_rgb}_{count}.png', img_lq_uint8)
-        imageio.imwrite(f'debug_gopro/{idx}_gt_{std_rgb}_{count}.png', (255*img_gt.permute(1, 2, 0).numpy()).astype(np.uint8))
+        std = np.max(np.std(img_lq_uint8, axis=(0,1)))
+        imageio.imwrite(f'debug/{idx}_blurred_{std_rgb}_{i_crop}.png', img_lq_uint8)
+        imageio.imwrite(f'debug/{idx}_gt_{std_rgb}_{i_crop}.png', (255*img_gt.permute(1, 2, 0).numpy()).astype(np.uint8))
         """
         # normalize
         if self.mean is not None or self.std is not None:
             normalize(img_lq, self.mean, self.std, inplace=True)
             normalize(img_gt, self.mean, self.std, inplace=True)
-        
+
         return {
             'lq': img_lq,
             'gt': img_gt,

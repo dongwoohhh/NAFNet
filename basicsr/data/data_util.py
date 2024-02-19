@@ -247,8 +247,8 @@ def paired_paths_from_folder(folders, keys, filename_tmpl):
         basename_input, ext_input = osp.splitext(osp.basename(input_path))
         input_name = f'{filename_tmpl.format(basename)}{ext_input}'
         input_path = osp.join(input_folder, input_name)
-        assert input_name in input_paths, (f'{input_name} is not in '
-                                           f'{input_key}_paths.')
+        #assert input_name in input_paths, (f'{input_name} is not in '
+        #                                   f'{input_key}_paths.')
         gt_path = osp.join(gt_folder, gt_path)
         paths.append(
             dict([(f'{input_key}_path', input_path),
