@@ -162,9 +162,88 @@ def paired_random_crop_gaussian(img_gts, img_lqs, gt_patch_size, scale, gt_path)
         img_lqs = img_lqs[0]
     return img_gts, img_lqs
 
+def triplet_random_crop(img_gts, img_lqs, kernels, gt_patch_size, scale, gt_path):
+    """Paired random crop.
 
+    It crops lists of lq and gt images with corresponding locations.
 
+    Args:
+        img_gts (list[ndarray] | ndarray): GT images. Note that all images
+            should have the same shape. If the input is an ndarray, it will
+            be transformed to a list containing itself.
+        img_lqs (list[ndarray] | ndarray): LQ images. Note that all images
+            should have the same shape. If the input is an ndarray, it will
+            be transformed to a list containing itself.
+        gt_patch_size (int): GT patch size.
+        scale (int): Scale factor.
+        gt_path (str): Path to ground-truth.
 
+    Returns:
+        list[ndarray] | ndarray: GT images and LQ images. If returned results
+            only have one element, just return ndarray.
+    """
+
+    if not isinstance(img_gts, list):
+        img_gts = [img_gts]
+    if not isinstance(img_lqs, list):
+        img_lqs = [img_lqs]
+    if not isinstance(kernels, list):
+        kernels = [kernels]
+
+    h_lq, w_lq, _ = img_lqs[0].shape
+    h_gt, w_gt, _ = img_gts[0].shape
+
+    h_k, w_k = kernels[0].shape[0:2]
+
+    lq_patch_size = gt_patch_size 
+    kernel_patch_size = gt_patch_size // scale
+
+    if h_gt != h_lq or w_gt != w_lq:
+        raise ValueError(
+            f'Scale mismatches. GT ({h_gt}, {w_gt}) is not 1x ',
+            f'multiplication of LQ ({h_lq}, {w_lq}).')
+    if h_lq < lq_patch_size or w_lq < lq_patch_size:
+        raise ValueError(f'LQ ({h_lq}, {w_lq}) is smaller than patch size '
+                         f'({lq_patch_size}, {lq_patch_size}). '
+                         f'Please remove {gt_path}.')
+    if h_gt != h_k * scale or w_gt != w_k * scale:
+        raise ValueError(
+            f'Scale mismatches. GT ({h_gt}, {w_gt}) is not {scale}x ',
+            f'multiplication of LQ ({h_k}, {w_k}).')
+    if h_k < kernel_patch_size or w_k < kernel_patch_size:
+        raise ValueError(f'Kernel ({h_k}, {w_k}) is smaller than patch size '
+                         f'({kernel_patch_size}, {kernel_patch_size}). '
+                         f'Please remove {gt_path}.')
+
+    # randomly choose top and left coordinates for lq patch
+    top = random.randint(0, h_k - kernel_patch_size)
+    left = random.randint(0, w_k - kernel_patch_size)
+    #print(h_k, w_k, kernel_patch_size, top, left)
+    # crop kernel patch
+    kernels = [
+        v[top:top + kernel_patch_size, left:left + kernel_patch_size, ...]
+        for v in kernels
+    ]
+
+    # crop corresponding gt patch
+    top_gt, left_gt = int(top * scale), int(left * scale)
+    img_gts = [
+        v[top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size, ...]
+        for v in img_gts
+    ]
+    # crop corresponding lq patch
+    img_lqs = [
+        v[top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size, ...]
+        for v in img_lqs
+    ]
+
+    if len(img_gts) == 1:
+        img_gts = img_gts[0]
+    if len(img_lqs) == 1:
+        img_lqs = img_lqs[0]
+    if len(kernels) == 1:
+        kernels = kernels[0]
+    return img_gts, img_lqs, kernels
 def paired_random_crop_hw(img_gts, img_lqs, gt_patch_size_h, gt_patch_size_w, scale, gt_path):
     """Paired random crop.
 

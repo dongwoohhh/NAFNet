@@ -10,7 +10,7 @@ from torchvision.transforms.functional import normalize
 from basicsr.data.data_util import (paired_paths_from_folder,
                                     paired_paths_from_lmdb,
                                     paired_paths_from_meta_info_file)
-from basicsr.data.transforms import augment, paired_random_crop_gaussian
+from basicsr.data.transforms import augment, paired_random_crop_gaussian, paired_random_crop
 from basicsr.utils import FileClient, imfrombytes, img2tensor, padding
 
 import imageio
@@ -114,6 +114,8 @@ class MVImgNetDataset(data.Dataset):
             img_gt, img_lq = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
                                                          gt_path)
             """
+            img_gt_crop, img_lq_crop = paired_random_crop(img_gt, img_lq, gt_size, scale,
+                                                gt_path)
             #std_rgb = 0.
             #count = 0
             
@@ -121,8 +123,9 @@ class MVImgNetDataset(data.Dataset):
             max_iter = 5
             for i_crop in range(max_iter):
                 # random crop
-                img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
-                                                            gt_path)
+                #img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
+                #                                                gt_path)
+                
                 
                 img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
                 std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))

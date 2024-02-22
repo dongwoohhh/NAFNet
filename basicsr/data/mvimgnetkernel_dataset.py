@@ -11,7 +11,7 @@ from basicsr.data.data_util import (paired_paths_from_folder,
                                     triplet_paths_from_folder,
                                     paired_paths_from_lmdb,
                                     paired_paths_from_meta_info_file)
-from basicsr.data.transforms import augment, paired_random_crop_gaussian
+from basicsr.data.transforms import augment, paired_random_crop_gaussian, paired_random_crop, triplet_random_crop
 from basicsr.utils import FileClient, imfrombytes, img2tensor, padding
 
 import imageio
@@ -83,13 +83,46 @@ class MVImgNetKernelDataset(data.Dataset):
             [self.lq_folder, self.gt_folder, self.kernel_folder], ['lq', 'gt', 'kernel'],
             self.filename_tmpl)
 
+    def build_kernel_map(self, kernel):
+        window_size = 64
+        K, _, H, W = kernel.shape
+        
+        #kernel_map = torch.zeros(1, H, W, window_size, window_size).float()
+
+        
+        coords_y = torch.arange(H)
+        coords_x = torch.arange(W)
+        coords_yx = torch.stack(torch.meshgrid([coords_y, coords_x]), dim=0) 
+        coords_yx = coords_yx[None].repeat(K, 1, 1, 1)
+        
+        kernel_x = torch.clip(kernel[:, 0] + window_size//2, 0, window_size-1)
+        kernel_y = torch.clip(kernel[:, 1] + window_size//2, 0, window_size-1)
+
+        coords_y = coords_yx[:, 0]
+        coords_x = coords_yx[:, 1]
+        
+        value = torch.ones_like(kernel_x) / K
+        indices = torch.stack([coords_y, coords_x, kernel_y, kernel_x])
+
+        value = value.reshape(-1)
+        indices = indices.reshape(4, -1)
+
+        kernel_map_coo = torch.sparse_coo_tensor(indices, value, (H, W, window_size, window_size))
+
+        kernel_map = kernel_map_coo.to_dense()
+        return kernel_map
+        #import imageio 
+        #imageio.imwrite('viskernel.png', (255*kernel_map[100, 100]).numpy().astype(np.uint8))
+        #import pdb; pdb.set_trace()
+
 
     def __getitem__(self, index):
+
         if self.file_client is None:
             self.file_client = FileClient(
                 self.io_backend_opt.pop('type'), **self.io_backend_opt)
-
         scale = self.opt['scale']
+        scale_kernel = self.opt['scale_kernel']
 
         # Load gt and lq images. Dimension order: HWC; channel order: BGR;
         # image range: [0, 1], float32.
@@ -111,7 +144,8 @@ class MVImgNetKernelDataset(data.Dataset):
             raise Exception("lq path {} not working".format(lq_path))
         kernel_path = self.paths[index]['kernel_path']
         kernel = torch.load(kernel_path, map_location=torch.device('cpu'))
-        """
+        
+        kernel_map = self.build_kernel_map(kernel)
         # augmentation for training
         if self.opt['phase'] == 'train':
             gt_size = self.opt['gt_size']
@@ -126,8 +160,10 @@ class MVImgNetKernelDataset(data.Dataset):
             max_iter = 5
             for i_crop in range(max_iter):
                 # random crop
-                img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
-                                                            gt_path)
+                #img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
+                #                                            gt_path)
+                img_gt_crop, img_lq_crop, kernel_map_crop = triplet_random_crop(img_gt, img_lq, kernel_map, gt_size, scale_kernel,
+                                                                                gt_path)
                 
                 img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
                 std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
@@ -139,19 +175,24 @@ class MVImgNetKernelDataset(data.Dataset):
 
             img_gt = img_gt_out
             img_lq = img_lq_out
+            kernel_map = kernel_map_crop
             #count += 1
             #print(std_rgb, count)
             
             
             # flip, rotation
-            img_gt, img_lq = augment([img_gt, img_lq], self.opt['use_flip'],
-                                     self.opt['use_rot'])
-        """
+            #img_gt, img_lq = augment([img_gt, img_lq], self.opt['use_flip'],
+            #                         False)
+            #                         #self.opt['use_rot'])
+        
         # TODO: color space transform
         # BGR to RGB, HWC to CHW, numpy to tensor
         img_gt, img_lq = img2tensor([img_gt, img_lq],
                                     bgr2rgb=True,
                                     float32=True)
+        # H, W, w, w to H, W, 1, w, w
+        #kernel_map = kernel_map.unsqueeze(2)
+        
         """
         idx =  np.random.randint(100000)
         #print(img_lq.permute(1, 2, 0).numpy().shape)
@@ -160,18 +201,18 @@ class MVImgNetKernelDataset(data.Dataset):
         imageio.imwrite(f'debug/{idx}_blurred_{std_rgb}_{i_crop}.png', img_lq_uint8)
         imageio.imwrite(f'debug/{idx}_gt_{std_rgb}_{i_crop}.png', (255*img_gt.permute(1, 2, 0).numpy()).astype(np.uint8))
         """
-        """
+        
         # normalize
         if self.mean is not None or self.std is not None:
             normalize(img_lq, self.mean, self.std, inplace=True)
             normalize(img_gt, self.mean, self.std, inplace=True)
-        """
+        
         return {
             'lq': img_lq,
             'gt': img_gt,
             'lq_path': lq_path,
             'gt_path': gt_path,
-            'kernel': kernel,
+            'kernel_map': kernel_map,
             'kernel_path': kernel_path
         }
 
