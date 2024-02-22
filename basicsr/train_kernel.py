@@ -270,7 +270,14 @@ def main():
             
             optimizer_g.zero_grad()
 
-            l_pix = cri_pix(kernel_pred, train_data['kernel_map'].cuda())
+            kernel_map = train_data['kernel_map'].cuda()
+            
+            n_fg = torch.sum(kernel_map>0, dim=(-1, -2))
+            n_bg = torch.sum(kernel_map==0, dim=(-1, -2))
+            #import pdb; pdb.set_trace()
+            weight = torch.where(kernel_map>0, torch.ones_like(kernel_map)/n_fg[..., None, None], torch.ones_like(kernel_map)/n_bg[..., None, None])
+
+            l_pix = cri_pix(kernel_pred, kernel_map.bool().float(), weight)
             l_pix.backward()
             optimizer_g.step()
 
@@ -284,7 +291,7 @@ def main():
                 image_gt = train_data['lq'].clone()[0]
                 _, H, W = image_pred.shape
                 kernel = kernel_pred[0].cpu()
-                kernel_gt = train_data['kernel_map'][0]
+                kernel_gt = kernel_map[0].cpu()
 
                 #kernel = torch.where(kernel>1/120, torch.ones_like(kernel), torch.zeros_like(kernel))
                 #kernel_gt = torch.where(kernel_gt>1/120, torch.ones_like(kernel), torch.zeros_like(kernel))

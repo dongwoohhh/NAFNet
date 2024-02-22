@@ -95,10 +95,10 @@ def create_dataloader(dataset,
             dataset=dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=num_workers,
+            num_workers=0,#num_workers,
             sampler=sampler,
             drop_last=True,
-            persistent_workers=True
+            #persistent_workers=True
         )
         if sampler is None:
             dataloader_args['shuffle'] = True

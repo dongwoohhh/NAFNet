@@ -255,7 +255,7 @@ class ResUNet(nn.Module):
         x = self.iconv2(x)
         #print(x.shape)
         x_out = self.out_conv(x)
-        x_out = self.relu(x_out)
+        x_out = self.sigmoid(x_out)
         B, _, H, W = x_out.shape
         x_kernel = x_out.reshape(B, self.window_size, self.window_size, H, W)
         x_kernel = x_kernel.permute(0, 3, 4, 1, 2)

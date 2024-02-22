@@ -193,7 +193,7 @@ def triplet_random_crop(img_gts, img_lqs, kernels, gt_patch_size, scale, gt_path
     h_lq, w_lq, _ = img_lqs[0].shape
     h_gt, w_gt, _ = img_gts[0].shape
 
-    h_k, w_k = kernels[0].shape[0:2]
+    h_k, w_k = kernels[0].shape[-2:]
 
     lq_patch_size = gt_patch_size 
     kernel_patch_size = gt_patch_size // scale
@@ -221,7 +221,7 @@ def triplet_random_crop(img_gts, img_lqs, kernels, gt_patch_size, scale, gt_path
     #print(h_k, w_k, kernel_patch_size, top, left)
     # crop kernel patch
     kernels = [
-        v[top:top + kernel_patch_size, left:left + kernel_patch_size, ...]
+        v[..., top:top + kernel_patch_size, left:left + kernel_patch_size]
         for v in kernels
     ]
 

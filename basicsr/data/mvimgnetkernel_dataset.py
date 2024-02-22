@@ -92,7 +92,7 @@ class MVImgNetKernelDataset(data.Dataset):
         
         coords_y = torch.arange(H)
         coords_x = torch.arange(W)
-        coords_yx = torch.stack(torch.meshgrid([coords_y, coords_x]), dim=0) 
+        coords_yx = torch.stack(torch.meshgrid([coords_y, coords_x], indexing='ij'), dim=0) 
         coords_yx = coords_yx[None].repeat(K, 1, 1, 1)
         
         kernel_x = torch.clip(kernel[:, 0] + window_size//2, 0, window_size-1)
@@ -102,6 +102,7 @@ class MVImgNetKernelDataset(data.Dataset):
         coords_x = coords_yx[:, 1]
         
         value = torch.ones_like(kernel_x) / K
+
         indices = torch.stack([coords_y, coords_x, kernel_y, kernel_x])
 
         value = value.reshape(-1)
@@ -145,7 +146,7 @@ class MVImgNetKernelDataset(data.Dataset):
         kernel_path = self.paths[index]['kernel_path']
         kernel = torch.load(kernel_path, map_location=torch.device('cpu'))
         
-        kernel_map = self.build_kernel_map(kernel)
+        
         # augmentation for training
         if self.opt['phase'] == 'train':
             gt_size = self.opt['gt_size']
@@ -162,7 +163,8 @@ class MVImgNetKernelDataset(data.Dataset):
                 # random crop
                 #img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
                 #                                            gt_path)
-                img_gt_crop, img_lq_crop, kernel_map_crop = triplet_random_crop(img_gt, img_lq, kernel_map, gt_size, scale_kernel,
+                
+                img_gt_crop, img_lq_crop, kernel_crop = triplet_random_crop(img_gt, img_lq, kernel, gt_size, scale_kernel,
                                                                                 gt_path)
                 
                 img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
@@ -175,7 +177,8 @@ class MVImgNetKernelDataset(data.Dataset):
 
             img_gt = img_gt_out
             img_lq = img_lq_out
-            kernel_map = kernel_map_crop
+            kernel_map = self.build_kernel_map(kernel_crop)
+            #kernel_map = kernel_map_crop
             #count += 1
             #print(std_rgb, count)
             
