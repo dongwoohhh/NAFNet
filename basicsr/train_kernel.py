@@ -215,8 +215,8 @@ def main():
 
     from basicsr.models.archs.ResUNet_arch import ResUNet
     from basicsr.models.archs.KernelNet_arch import BlurCLIP
-    #model = BlurCLIP().cuda()
-    model = ResUNet().cuda()
+    model = BlurCLIP().cuda()
+    #model = ResUNet().cuda()
 
     # Optimizer.
     optim_params = []
@@ -264,12 +264,23 @@ def main():
             if current_iter > total_iters:
                 break
 
-            #model(train_data['lq'].cuda(), train_data['kernel_map'].cuda())
-            kernel_pred = model(train_data['lq'].cuda())
+            logit_img, logit_ker, loss = model(train_data['lq'].cuda(), train_data['kernel'].cuda())
+
+            optimizer_g.zero_grad()
+            loss.backward()
+            optimizer_g.step()
+
+            if current_iter % 10 ==0:
+                print(f'Epoch: {epoch} Iter: {current_iter} loss: {loss:.6f} time: {time.time()-iter_time:.3f}')
+            
+            if current_iter % 100 ==0:
+                print(logit_img)
+            #kernel_pred = model(train_data['lq'].cuda())
             #import pdb; pdb.set_trace()
             
+            
+            """
             optimizer_g.zero_grad()
-
             kernel_map = train_data['kernel_map'].cuda()
             
             n_fg = torch.sum(kernel_map>0, dim=(-1, -2))
@@ -312,7 +323,7 @@ def main():
                 image_pred = torch.clip(image_pred, 0, 1.)
                 torchvision.utils.save_image(image_pred, f'debug_kernel/{current_iter}_pred.png' )
                 torchvision.utils.save_image(image_gt, f'debug_kernel/{current_iter}_gt.png' )
-            
+            """
             """
             # update learning rate
             model.update_learning_rate(

@@ -33,7 +33,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 16
-    batch_size_per_gpu: 1
+    batch_size_per_gpu: 8
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 
@@ -78,7 +78,7 @@ train:
 
   # losses
   pixel_opt:
-    type: L1Loss
+    type: MSELoss
     loss_weight: 1
     reduction: mean
 

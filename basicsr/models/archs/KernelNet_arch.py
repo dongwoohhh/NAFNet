@@ -436,6 +436,131 @@ def build_model(state_dict: dict):
     return model.eval()
 
 
+from einops.layers.torch import Rearrange
+
+
+class FeedForward(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout = 0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+    def forward(self, x):
+        return self.net(x)
+
+class MixerBlock(nn.Module):
+
+    def __init__(self, dim, num_patch, token_dim, channel_dim, dropout = 0.):
+        super().__init__()
+
+        self.token_mix = nn.Sequential(
+            nn.LayerNorm(dim),
+            Rearrange('b n d -> b d n'),
+            FeedForward(num_patch, token_dim, dropout),
+            Rearrange('b d n -> b n d')
+        )
+
+        self.channel_mix = nn.Sequential(
+            nn.LayerNorm(dim),
+            FeedForward(dim, channel_dim, dropout),
+        )
+
+    def forward(self, x):
+        x = x + self.token_mix(x)
+        x = x + self.channel_mix(x)
+
+        return x
+
+
+class MLPMixer(nn.Module):
+
+    def __init__(self, in_channels, dim, num_classes, patch_size, image_size, depth, token_dim, channel_dim):
+        super().__init__()
+
+        assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
+        self.num_patch =  (image_size// patch_size) ** 2
+        self.to_patch_embedding = nn.Sequential(
+            nn.Conv2d(in_channels, dim, patch_size, patch_size),
+            Rearrange('b c h w -> b (h w) c'),
+        )
+
+        self.mixer_blocks = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.mixer_blocks.append(MixerBlock(dim, self.num_patch, token_dim, channel_dim))
+
+        self.layer_norm = nn.LayerNorm(dim)
+
+        self.mlp_head = nn.Sequential(
+            nn.Linear(dim, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.to_patch_embedding(x)
+
+        for mixer_block in self.mixer_blocks:
+            x = mixer_block(x)
+
+        x = self.layer_norm(x)
+
+        x = x.mean(dim=1)
+
+        return self.mlp_head(x)
+
+# Positional encoding (section 5.1)
+class Embedder:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.create_embedding_fn()
+        
+    def create_embedding_fn(self):
+        embed_fns = []
+        d = self.kwargs['input_dims']
+        out_dim = 0
+        if self.kwargs['include_input']:
+            embed_fns.append(lambda x : x)
+            out_dim += d
+            
+        max_freq = self.kwargs['max_freq_log2']
+        N_freqs = self.kwargs['num_freqs']
+        
+        if self.kwargs['log_sampling']:
+            freq_bands = 2.**torch.linspace(0., max_freq, steps=N_freqs)
+        else:
+            freq_bands = torch.linspace(2.**0., 2.**max_freq, steps=N_freqs)
+            
+        for freq in freq_bands:
+            for p_fn in self.kwargs['periodic_fns']:
+                embed_fns.append(lambda x, p_fn=p_fn, freq=freq : p_fn(x * freq))
+                out_dim += d
+                    
+        self.embed_fns = embed_fns
+        self.out_dim = out_dim
+        
+    def embed(self, inputs):
+        return torch.cat([fn(inputs) for fn in self.embed_fns], -1)
+
+def get_embedder(multires, i=0):
+    if i == -1:
+        return nn.Identity(), 3
+    
+    embed_kwargs = {
+                'include_input' : True,
+                'input_dims' : 2,
+                'max_freq_log2' : multires-1,
+                'num_freqs' : multires,
+                'log_sampling' : True,
+                'periodic_fns' : [torch.sin, torch.cos],
+    }
+    
+    embedder_obj = Embedder(**embed_kwargs)
+    embed = lambda x, eo=embedder_obj : eo.embed(x)
+    return embed, embedder_obj.out_dim
+
 class KernelEncoder(nn.Module):
     """
     A ResNet class that is similar to torchvision's but contains the following changes:
@@ -444,75 +569,34 @@ class KernelEncoder(nn.Module):
     - The final pooling layer is a QKV attention instead of an average pool
     """
 
-    def __init__(self, layers, output_dim, window_size, width=64):
+    def __init__(self, kernel_size, output_dim, token_dim, channel_dim, depth):
         super().__init__()
-        self.output_dim = output_dim
-        #self.input_resolution = input_resolution
-        self.linear1 = nn.Linear(window_size*window_size, window_size*window_size//4)
-        self.bn1 = nn.BatchNorm1d(window_size*window_size//4)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.linear2 = nn.Linear(window_size*window_size//4, width*2)
-        self.bn2 = nn.BatchNorm1d(width*2)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.linear3 = nn.Linear(width*2, width)
-        self.bn3 = nn.BatchNorm1d(width)
-        self.relu3 = nn.ReLU(inplace=True)
         
-        """
-        # the 3-layer stem
-        self.conv1 = nn.Conv2d(3, width // 2, kernel_size=3, stride=2, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(width // 2)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(width // 2, width // 2, kernel_size=3, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(width // 2)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = nn.Conv2d(width // 2, width, kernel_size=3, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(width)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.avgpool = nn.AvgPool2d(2)
-        """
-        # residual layers
-        self._inplanes = width  # this is a *mutable* variable used during construction
-        self.layer1 = self._make_layer(width, layers[0])
-        self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
-        self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
-        self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
+        self.embed_fn, self.input_dim = get_embedder(multires=10)
+        self.mlp_in = nn.Linear(self.input_dim, token_dim)
+        self.gelu = nn.GELU()
+        self.mixer_blocks = nn.ModuleList([])
+        for _ in range(depth):
+            self.mixer_blocks.append(MixerBlock(token_dim, kernel_size, token_dim, channel_dim))
 
-        #embed_dim = width * 32  # the ResNet feature dimension
-        #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
-        #self.avgpool = torch.nn.AvgPool2d()
+        self.layer_norm = nn.LayerNorm(token_dim)
 
-    def _make_layer(self, planes, blocks, stride=1):
-        layers = [Bottleneck(self._inplanes, planes, stride)]
-
-        self._inplanes = planes * Bottleneck.expansion
-        for _ in range(1, blocks):
-            layers.append(Bottleneck(self._inplanes, planes))
-
-        return nn.Sequential(*layers)
-
+        self.mlp_out = nn.Linear(token_dim, output_dim)
     def forward(self, x):
-        def stem(x):
-            
-            x = self.relu1(self.bn1(self.linear1(x)))
-            x = self.relu2(self.bn2(self.linear2(x)))
-            x = self.relu3(self.bn3(self.linear3(x)))
-            return x
-        x = x.flatten(-2)
-        B, H, W, C = x.shape
-        x = x.type(self.linear1.weight.dtype)
-        x = stem(x.reshape(-1, C))
+        B, H, W, K, _ = x.shape
+        x = self.embed_fn(x)
         
-        x = x.reshape(B, H, W, -1)
-        x = x.permute(0, 3, 1, 2)
-        
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        #x = self.attnpool(x)
-        import pdb; pdb.set_trace()
+        x = self.mlp_in(x)
+        x = self.gelu(x)
 
+        x = Rearrange('b h w k c -> (b h w) k c')(x)
+        for mixer_block in self.mixer_blocks:
+            x = mixer_block(x)
+        x = self.layer_norm(x)
+        
+        x = x.reshape(B, H, W, K, -1)
+        x = x.mean(-2).mean(-2).mean(-2)
+        x = self.mlp_out(x)
         return x
 
 class BlurEncoder(nn.Module):
@@ -547,10 +631,11 @@ class BlurEncoder(nn.Module):
         self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
         self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
 
+        self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
         #embed_dim = width * 32  # the ResNet feature dimension
         #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
+        self.attnpool = None
 
-        #self.avgpool = nn.Av
 
     def _make_layer(self, planes, blocks, stride=1):
         layers = [Bottleneck(self._inplanes, planes, stride)]
@@ -575,33 +660,68 @@ class BlurEncoder(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+
+        x = self.conv_out(x)
+        x = x.mean(-1).mean(-1)
         
-        import pdb; pdb.set_trace()
         #x = self.attnpool(x)
 
         return x
 
-
-
 class BlurCLIP(nn.Module):
     def __init__(self,
-                 window_size=64,
+                 kernel_size=61,
                  #vision_layers: Union[Tuple[int, int, int, int], int],
                  #vision_width: int,
                  #vision_patch_size: int,
                  ):
         super().__init__()
-        """
-        self.kernelnet = KernelEncoder(
-                layers=[3,4,6,3],
-                window_size=window_size,
-                output_dim=64*8, #embed_dim,
-                width=64
-            )
-        """
+        
+        self.k_encoder = KernelEncoder(kernel_size=61, output_dim=256, token_dim=128, channel_dim=128, depth=2)
         self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=256, width=64)
         
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.initialize_parameters()
+
+    def initialize_parameters(self):
+        if isinstance(self.b_encoder, BlurEncoder):
+            if self.b_encoder.attnpool is not None:
+                std = self.visual.attnpool.c_proj.in_features ** -0.5
+                nn.init.normal_(self.b_encoder.attnpool.q_proj.weight, std=std)
+                nn.init.normal_(self.b_encoder.attnpool.k_proj.weight, std=std)
+                nn.init.normal_(self.b_encoder.attnpool.v_proj.weight, std=std)
+                nn.init.normal_(self.b_encoder.attnpool.c_proj.weight, std=std)
+
+            for resnet_block in [self.b_encoder.layer1, self.b_encoder.layer2, self.b_encoder.layer3, self.b_encoder.layer4]:
+                for name, param in resnet_block.named_parameters():
+                    if name.endswith("bn3.weight"):
+                        nn.init.zeros_(param)
+
     def forward(self, image, kernel):
         embed_i = self.b_encoder(image)
+        embed_k = self.k_encoder(kernel)
+
+        # normalize
+        embed_i = embed_i / embed_i.norm(dim=1, keepdim=True)
+        embed_k = embed_k / embed_k.norm(dim=1, keepdim=True)
+
+        # cosine similarity as logits.
+        logit_scale = self.logit_scale.exp()
+        logits_per_image = logit_scale * embed_i @ embed_k.t()
+        logits_per_kernel = logits_per_image.t()
+
         #embed_k = self.kernelnet(kernel)
-        return
+
+        #return embed_i, embed_k
+        loss = clip_loss(logits_per_kernel)
+        return logits_per_image, logits_per_kernel, loss
+    
+
+def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
+    return nn.functional.cross_entropy(logits, torch.arange(len(logits), device=logits.device))
+
+
+def clip_loss(similarity: torch.Tensor) -> torch.Tensor:
+    caption_loss = contrastive_loss(similarity)
+    image_loss = contrastive_loss(similarity.t())
+    return (caption_loss + image_loss) / 2.0

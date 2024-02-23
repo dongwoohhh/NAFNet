@@ -177,7 +177,8 @@ class MVImgNetKernelDataset(data.Dataset):
 
             img_gt = img_gt_out
             img_lq = img_lq_out
-            kernel_map = self.build_kernel_map(kernel_crop)
+            kernel = kernel_crop
+            #kernel_map = self.build_kernel_map(kernel_crop)
             #kernel_map = kernel_map_crop
             #count += 1
             #print(std_rgb, count)
@@ -193,6 +194,7 @@ class MVImgNetKernelDataset(data.Dataset):
         img_gt, img_lq = img2tensor([img_gt, img_lq],
                                     bgr2rgb=True,
                                     float32=True)
+        kernel = kernel.permute(2, 3, 0, 1)
         # H, W, w, w to H, W, 1, w, w
         #kernel_map = kernel_map.unsqueeze(2)
         
@@ -215,7 +217,8 @@ class MVImgNetKernelDataset(data.Dataset):
             'gt': img_gt,
             'lq_path': lq_path,
             'gt_path': gt_path,
-            'kernel_map': kernel_map,
+            #'kernel_map': kernel_map,
+            'kernel': kernel,
             'kernel_path': kernel_path
         }
 
