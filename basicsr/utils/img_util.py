@@ -144,6 +144,7 @@ def padding(img_lq, img_gt, gt_size):
     # print('img_lq', img_lq.shape, img_gt.shape)
     return img_lq, img_gt
 
+
 def imwrite(img, file_path, params=None, auto_mkdir=True):
     """Write image to file.
 
@@ -184,3 +185,5 @@ def crop_border(imgs, crop_border):
         else:
             return imgs[crop_border:-crop_border, crop_border:-crop_border,
                         ...]
+
+

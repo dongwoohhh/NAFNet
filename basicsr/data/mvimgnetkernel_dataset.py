@@ -144,15 +144,22 @@ class MVImgNetKernelDataset(data.Dataset):
         except:
             raise Exception("lq path {} not working".format(lq_path))
         kernel_path = self.paths[index]['kernel_path']
-        kernel = torch.load(kernel_path, map_location=torch.device('cpu'))
+        kernel = torch.load(kernel_path, map_location=torch.device('cpu')).float()
+
         
         
+        H, W, _ = img_lq.shape
+        img_lq = img_lq[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
+        img_gt = img_gt[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
+        kernel = kernel[:, :, :H//scale_kernel, :W//scale_kernel]
+        
+        #kernel = kernel + 1e-5*torch.randn(kernel.shape)
+
         # augmentation for training
-        if self.opt['phase'] == 'train':
+        if self.opt['phase'] == 'train' or self.opt['phase'] == 'val':
             gt_size = self.opt['gt_size']
             # padding
             img_gt, img_lq = padding(img_gt, img_lq, gt_size)
-            
             
             #std_rgb = 0.
             #count = 0
@@ -191,6 +198,7 @@ class MVImgNetKernelDataset(data.Dataset):
         
         # TODO: color space transform
         # BGR to RGB, HWC to CHW, numpy to tensor
+
         img_gt, img_lq = img2tensor([img_gt, img_lq],
                                     bgr2rgb=True,
                                     float32=True)
@@ -219,7 +227,7 @@ class MVImgNetKernelDataset(data.Dataset):
             'gt_path': gt_path,
             #'kernel_map': kernel_map,
             'kernel': kernel,
-            'kernel_path': kernel_path
+            'kernel_path': kernel_path,
         }
 
     def __len__(self):

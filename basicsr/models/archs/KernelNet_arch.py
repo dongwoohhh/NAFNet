@@ -585,7 +585,7 @@ class KernelEncoder(nn.Module):
     def forward(self, x):
         B, H, W, K, _ = x.shape
         x = self.embed_fn(x)
-        
+
         x = self.mlp_in(x)
         x = self.gelu(x)
 
@@ -677,8 +677,8 @@ class BlurCLIP(nn.Module):
                  ):
         super().__init__()
         
-        self.k_encoder = KernelEncoder(kernel_size=61, output_dim=256, token_dim=128, channel_dim=128, depth=2)
-        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=256, width=64)
+        self.k_encoder = KernelEncoder(kernel_size=61, output_dim=128, token_dim=128, channel_dim=128, depth=2)
+        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
         
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.initialize_parameters()
@@ -698,13 +698,15 @@ class BlurCLIP(nn.Module):
                         nn.init.zeros_(param)
 
     def forward(self, image, kernel):
+        #print(kernel[:, :, :, 0, 0])
         embed_i = self.b_encoder(image)
         embed_k = self.k_encoder(kernel)
-
+        
         # normalize
         embed_i = embed_i / embed_i.norm(dim=1, keepdim=True)
         embed_k = embed_k / embed_k.norm(dim=1, keepdim=True)
-
+        #print('embed image', embed_i.norm(dim=1))
+        #print('embed kernel', embed_k)
         # cosine similarity as logits.
         logit_scale = self.logit_scale.exp()
         logits_per_image = logit_scale * embed_i @ embed_k.t()
@@ -713,10 +715,10 @@ class BlurCLIP(nn.Module):
         #embed_k = self.kernelnet(kernel)
 
         #return embed_i, embed_k
-        loss = clip_loss(logits_per_kernel)
-        return logits_per_image, logits_per_kernel, loss
+        #loss = clip_loss(logits_per_kernel)
+        return logits_per_image, logits_per_kernel#, loss
     
-
+"""
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
     return nn.functional.cross_entropy(logits, torch.arange(len(logits), device=logits.device))
 
@@ -725,3 +727,4 @@ def clip_loss(similarity: torch.Tensor) -> torch.Tensor:
     caption_loss = contrastive_loss(similarity)
     image_loss = contrastive_loss(similarity.t())
     return (caption_loss + image_loss) / 2.0
+"""

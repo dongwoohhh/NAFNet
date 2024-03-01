@@ -190,7 +190,7 @@ def main():
     train_loader, train_sampler, val_loader, total_epochs, total_iters = result
 
     # create model
-    """
+    
     if resume_state:  # resume training
         check_resume(opt, resume_state['iter'])
         model = create_model(opt)
@@ -203,29 +203,8 @@ def main():
         model = create_model(opt)
         start_epoch = 0
         current_iter = 0
-    """
 
-    
-    import importlib
-    loss_module = importlib.import_module('basicsr.models.losses')
-    pixel_type = opt['train']['pixel_opt'].pop('type')
-    cri_pix_cls = getattr(loss_module, pixel_type)
-    cri_pix = cri_pix_cls(**opt['train']['pixel_opt']).cuda()
-    optim_type = opt['train']['optim_g'].pop('type')
 
-    from basicsr.models.archs.ResUNet_arch import ResUNet
-    from basicsr.models.archs.KernelNet_arch import BlurCLIP
-    model = BlurCLIP().cuda()
-    #model = ResUNet().cuda()
-
-    # Optimizer.
-    optim_params = []
-    for k, v in model.named_parameters():
-        if v.requires_grad:
-            optim_params.append(v)
-    
-    optimizer_g = torch.optim.AdamW([{'params': optim_params}],
-                                        **opt['train']['optim_g'])
 
     start_epoch = 0
     current_iter = 0
@@ -263,68 +242,8 @@ def main():
             current_iter += 1
             if current_iter > total_iters:
                 break
-
-            logit_img, logit_ker, loss = model(train_data['lq'].cuda(), train_data['kernel'].cuda())
-
-            optimizer_g.zero_grad()
-            loss.backward()
-            optimizer_g.step()
-
-            if current_iter % 10 ==0:
-                print(f'Epoch: {epoch} Iter: {current_iter} loss: {loss:.6f} time: {time.time()-iter_time:.3f}')
-            
-            if current_iter % 100 ==0:
-                print(logit_img)
-            #kernel_pred = model(train_data['lq'].cuda())
-            #import pdb; pdb.set_trace()
             
             
-            """
-            optimizer_g.zero_grad()
-            kernel_map = train_data['kernel_map'].cuda()
-            
-            n_fg = torch.sum(kernel_map>0, dim=(-1, -2))
-            n_bg = torch.sum(kernel_map==0, dim=(-1, -2))
-            #import pdb; pdb.set_trace()
-            weight = torch.where(kernel_map>0, torch.ones_like(kernel_map)/n_fg[..., None, None], torch.ones_like(kernel_map)/n_bg[..., None, None])
-
-            l_pix = cri_pix(kernel_pred, kernel_map.bool().float(), weight)
-            l_pix.backward()
-            optimizer_g.step()
-
-            if current_iter % 10 ==0:
-                print(f'Epoch: {epoch} Iter: {current_iter} loss: {l_pix:.6f} time: {time.time()-iter_time:.3f}')
-                #torchvision.utils.save_image(reblur, f'debug_reblur/{current_iter}_reblur.png' )
-                #torchvision.utils.save_image(model.img_hq.detach(), f'debug_reblur/{current_iter}_restored.png' )
-
-            if current_iter % 100 ==0:
-                image_pred = train_data['lq'].clone()[0]
-                image_gt = train_data['lq'].clone()[0]
-                _, H, W = image_pred.shape
-                kernel = kernel_pred[0].cpu()
-                kernel_gt = kernel_map[0].cpu()
-
-                #kernel = torch.where(kernel>1/120, torch.ones_like(kernel), torch.zeros_like(kernel))
-                #kernel_gt = torch.where(kernel_gt>1/120, torch.ones_like(kernel), torch.zeros_like(kernel))
-                
-                stride = 16
-                window_size = 64
-                for ix, x_i in enumerate(range(window_size, W-1-window_size, stride)):
-                    for iy, y_i in enumerate(range(window_size, H-1-window_size, stride)):
-                        kernel_pred_i = kernel[y_i//4, x_i//4, :, :]
-                        kernel_gt_i = kernel_gt[y_i//4, x_i//4, :, :]
-
-                        kernel_pred_i = kernel_pred_i /  torch.max(kernel_pred_i)
-                        kernel_gt_i = kernel_gt_i /  torch.max(kernel_gt_i)
-
-                        image_pred[0, y_i-window_size//2:y_i+window_size//2, x_i-window_size//2:x_i+window_size//2] += kernel_pred_i
-                        image_gt[1, y_i-window_size//2:y_i+window_size//2, x_i-window_size//2:x_i+window_size//2] += kernel_gt_i
-                image_gt = torch.clip(image_gt, 0, 1.)
-                image_pred = torch.clip(image_pred, 0, 1.)
-                torchvision.utils.save_image(image_pred, f'debug_kernel/{current_iter}_pred.png' )
-                torchvision.utils.save_image(image_gt, f'debug_kernel/{current_iter}_gt.png' )
-            """
-            """
             # update learning rate
             model.update_learning_rate(
                 current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
@@ -335,6 +254,7 @@ def main():
             # if result_code == -1 and tb_logger:
             #     print('loss explode .. ')
             #     exit(0)
+
             iter_time = time.time() - iter_time
             # log
             if current_iter % opt['logger']['print_freq'] == 0:
@@ -366,36 +286,6 @@ def main():
 
             data_time = time.time()
             iter_time = time.time()
-            train_data = prefetcher.next()
-            """
-
-            """
-            model = KernelNet(train_data['lq'].cuda(), train_data['kernel'].cuda())
-            # Optimizer.
-            optim_params = []
-            for k, v in model.named_parameters():
-                if v.requires_grad:
-                    optim_params.append(v)
-            
-            optimizer_g = torch.optim.AdamW([{'params': optim_params}],
-                                              **opt['train']['optim_g'])
-            
-            #model(train_data['gt'].cuda())
-            while 1:
-                current_iter += 1
-                iter_time = time.time()
-                reblur = model()
-
-                optimizer_g.zero_grad()
-
-                l_pix = cri_pix(reblur, train_data['lq'].cuda())
-                l_pix.backward()
-                optimizer_g.step()
-                if current_iter % 10 ==0:
-                    print(f'Iter: {current_iter} loss: {l_pix:.3f} time: {time.time()-iter_time:.3f}')
-                    torchvision.utils.save_image(reblur, f'debug_reblur/{current_iter}_reblur.png' )
-                    torchvision.utils.save_image(model.img_hq.detach(), f'debug_reblur/{current_iter}_restored.png' )
-            """
             train_data = prefetcher.next()
         # end of iter
         epoch += 1
