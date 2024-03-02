@@ -79,9 +79,21 @@ class MVImgNetKernelDataset(data.Dataset):
                 [self.lq_folder, self.gt_folder], ['lq', 'gt'],
                 self.filename_tmpl)
         """
-        self.paths = triplet_paths_from_folder(
-            [self.lq_folder, self.gt_folder, self.kernel_folder], ['lq', 'gt', 'kernel'],
-            self.filename_tmpl)
+        if isinstance(self.lq_folder, str):
+            self.paths = triplet_paths_from_folder(
+                [self.lq_folder, self.gt_folder, self.kernel_folder], ['lq', 'gt', 'kernel'],
+                self.filename_tmpl)
+        elif isinstance(self.lq_folder, list):
+            self.paths = []
+            for i, _ in enumerate(self.lq_folder):
+                lq_folder = self.lq_folder[i]
+                gt_folder = self.gt_folder[i]
+                kernel_folder = self.kernel_folder[i]
+
+                paths = triplet_paths_from_folder(
+                    [lq_folder, gt_folder, kernel_folder], ['lq', 'gt', 'kernel'],
+                    self.filename_tmpl)
+                self.paths.extend(paths)
 
     def build_kernel_map(self, kernel):
         window_size = 64
@@ -146,20 +158,23 @@ class MVImgNetKernelDataset(data.Dataset):
         kernel_path = self.paths[index]['kernel_path']
         kernel = torch.load(kernel_path, map_location=torch.device('cpu')).float()
 
-        
+        if torch.sum(torch.isnan(kernel)) >0:
+            print(self.paths[index]['kernel_path'])
+            kernel = torch.where(torch.isnan(kernel), torch.zeros_like(kernel), kernel)
         
         H, W, _ = img_lq.shape
         img_lq = img_lq[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
         img_gt = img_gt[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
         kernel = kernel[:, :, :H//scale_kernel, :W//scale_kernel]
         
-        #kernel = kernel + 1e-5*torch.randn(kernel.shape)
+        kernel = kernel + 1e-4*torch.randn(kernel.shape)
 
         # augmentation for training
-        if self.opt['phase'] == 'train' or self.opt['phase'] == 'val':
-            gt_size = self.opt['gt_size']
+        gt_size = self.opt['gt_size']
             # padding
-            img_gt, img_lq = padding(img_gt, img_lq, gt_size)
+        if self.opt['phase'] == 'train': #or self.opt['phase'] == 'val':
+            
+            #img_gt, img_lq = padding(img_gt, img_lq, gt_size)
             
             #std_rgb = 0.
             #count = 0
@@ -174,6 +189,7 @@ class MVImgNetKernelDataset(data.Dataset):
                 img_gt_crop, img_lq_crop, kernel_crop = triplet_random_crop(img_gt, img_lq, kernel, gt_size, scale_kernel,
                                                                                 gt_path)
                 
+                
                 img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
                 std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
                 
@@ -181,20 +197,26 @@ class MVImgNetKernelDataset(data.Dataset):
                     img_gt_out = img_gt_crop
                     img_lq_out = img_lq_crop
                     break
+        else:
+            img_gt_crop = img_gt[H//2-gt_size//2:H//2+gt_size//2, W//2-gt_size//2:W//2+gt_size//2]
+            img_lq_crop = img_lq[H//2-gt_size//2:H//2+gt_size//2, W//2-gt_size//2:W//2+gt_size//2]
+            kernel_crop = kernel[:, :, (H//2-gt_size)//scale_kernel:(H//2+gt_size)//scale_kernel, (W//2-gt_size)//scale_kernel:(W//2+gt_size)//scale_kernel]
+            img_gt_out = img_gt_crop
+            img_lq_out = img_lq_crop
 
-            img_gt = img_gt_out
-            img_lq = img_lq_out
-            kernel = kernel_crop
-            #kernel_map = self.build_kernel_map(kernel_crop)
-            #kernel_map = kernel_map_crop
-            #count += 1
-            #print(std_rgb, count)
-            
-            
-            # flip, rotation
-            #img_gt, img_lq = augment([img_gt, img_lq], self.opt['use_flip'],
-            #                         False)
-            #                         #self.opt['use_rot'])
+        img_gt = img_gt_out
+        img_lq = img_lq_out
+        kernel = kernel_crop
+        #kernel_map = self.build_kernel_map(kernel_crop)
+        #kernel_map = kernel_map_crop
+        #count += 1
+        #print(std_rgb, count)
+        
+        
+        # flip, rotation
+        #img_gt, img_lq = augment([img_gt, img_lq], self.opt['use_flip'],
+        #                         False)
+        #                         #self.opt['use_rot'])
         
         # TODO: color space transform
         # BGR to RGB, HWC to CHW, numpy to tensor
@@ -203,6 +225,9 @@ class MVImgNetKernelDataset(data.Dataset):
                                     bgr2rgb=True,
                                     float32=True)
         kernel = kernel.permute(2, 3, 0, 1)
+
+        # Normalize kernel:
+        kernel = kernel / gt_size
         # H, W, w, w to H, W, 1, w, w
         #kernel_map = kernel_map.unsqueeze(2)
         

@@ -190,15 +190,15 @@ class CLIPModel(BaseModel):
         l_total = 0
         loss_dict = OrderedDict()
         # cross entropy loss
-        kernel_loss = self.cri_embed(logits_per_kernel, torch.arange(len(logits_per_kernel), device=self.device))
-        image_loss = self.cri_embed(logits_per_kernel.t(), torch.arange(len(logits_per_kernel), device=self.device))
+        kernel_loss = F.cross_entropy(logits_per_kernel, torch.arange(len(logits_per_kernel), device=self.device))
+        image_loss = F.cross_entropy(logits_per_kernel.t(), torch.arange(len(logits_per_kernel), device=self.device))
 
         l_ce = (kernel_loss + image_loss) / 2.0
 
         l_total += l_ce
         loss_dict['l_ce'] = l_ce
-
-        l_total = l_total + 0.001 * sum(p.sum() for p in self.net_g.parameters())
+        #loss_dict['l_weight'] = 0.001 * sum(p.sum() for p in self.net_g.parameters())
+        l_total = l_total + 0 * sum(p.sum() for p in self.net_g.parameters())
 
         l_total.backward()
 
@@ -242,34 +242,39 @@ class CLIPModel(BaseModel):
         with_metrics = self.opt['val'].get('metrics') is not None
         if with_metrics:
             self.metric_results = {
-                metric: 0
-                for metric in self.opt['val']['metrics'].keys()
+                'l_ce': 0
             }
 
         rank, world_size = get_dist_info()
         if rank == 0:
-            #pbar = tqdm(total=len(dataloader), unit='image')
-            pbar = tqdm(total=1000, unit='image')
+            pbar = tqdm(total=len(dataloader), unit='image')
+            #pbar = tqdm(total=1000, unit='image')
 
         cnt = 0
 
         for idx, val_data in enumerate(dataloader):
-            #if idx % world_size != rank:
-            #    continue
-            if idx > 1000:
+            if idx % world_size != rank:
                 continue
-
+            if len(val_data['lq']) < n_images:
+                continue
             self.feed_data(val_data, is_val=True)
             #if self.opt['val'].get('grids', False):
             #    self.grids()
 
             self.test()
+            
+            kernel_loss = F.cross_entropy(self.output, torch.arange(len(self.output), device=self.output.device))
+            image_loss = F.cross_entropy(self.output.t(), torch.arange(len(self.output), device=self.output.device))
 
-            savedir = osp.join(self.opt['path']['visualization'], dataset_name, current_iter, f'{idx}_{rank}')
+            l_ce = (kernel_loss + image_loss) / 2.0
+
+            self.metric_results['l_ce'] += l_ce
+
+            savedir = osp.join(self.opt['path']['visualization'], dataset_name, str(current_iter))#, f'{str(idx)}_{str(rank)}')
             os.makedirs(savedir, exist_ok=True)
             
             lq_cat = []
-            save_img_dir = osp.join(savedir, f'images.png')
+            save_img_dir = osp.join(savedir, f'{str(idx)}_images.png')
             lq_cat = val_data['lq'].permute(1,2,0,3).reshape(3, gt_size, -1)
             lq_upper = lq_cat[...,:n_images//2*gt_size]
             lq_lower = lq_cat[...,n_images//2*gt_size:]
@@ -277,7 +282,7 @@ class CLIPModel(BaseModel):
             torchvision.utils.save_image(lq2line, save_img_dir)
                 
             
-            save_fig_dir = osp.join(savedir, f'confusion.png')
+            save_fig_dir = osp.join(savedir, f'{str(idx)}_confusion.png')
             prob_kernel = F.softmax(self.output, dim=1).detach().cpu().numpy()
             df_cm = pd.DataFrame(prob_kernel, index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
             confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
@@ -285,6 +290,8 @@ class CLIPModel(BaseModel):
             figure.savefig(save_fig_dir, dpi=400)
 
             figure.clear()
+
+            cnt += 1
             
             """
             visuals = self.get_current_visuals()
@@ -342,13 +349,18 @@ class CLIPModel(BaseModel):
                         metric_type = opt_.pop('type')
                         self.metric_results[name] += getattr(
                             metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
-
-            cnt += 1
+        
+            #cnt += 1
+            """
             if rank == 0:
                 for _ in range(world_size):
                     pbar.update(1)
-                    pbar.set_description(f'Test {img_name}')
-        """
+                    pbar.set_description(f'Test {idx}')
+        
+        self.metric_results['l_ce'] /= cnt
+        self._log_validation_metric_values(current_iter, dataloader.dataset.opt['name'],
+                                                   tb_logger, self.metric_results)
+
         if rank == 0:
             pbar.close()
         """

@@ -561,7 +561,7 @@ def get_embedder(multires, i=0):
     embed = lambda x, eo=embedder_obj : eo.embed(x)
     return embed, embedder_obj.out_dim
 
-class KernelEncoder(nn.Module):
+class KernelMLPMixerEncoder(nn.Module):
     """
     A ResNet class that is similar to torchvision's but contains the following changes:
     - There are now 3 "stem" convolutions as opposed to 1, with an average pool instead of a max pool.
@@ -598,6 +598,48 @@ class KernelEncoder(nn.Module):
         x = x.mean(-2).mean(-2).mean(-2)
         x = self.mlp_out(x)
         return x
+
+class KernelAttentionEncoder(nn.Module):
+
+    def __init__(self, inner_dim, output_dim, depth, heads):
+        super().__init__()
+        self.embed_fn, self.input_dim = get_embedder(multires=10)
+        self.mlp_in = nn.Linear(self.input_dim, inner_dim)
+        self.inner_dim = inner_dim
+        self.transformer_kernel = Transformer(
+            width=inner_dim,
+            layers=depth,
+            heads=heads, 
+            attn_mask=None
+        )
+
+        self.transformer_patch = Transformer(
+            width=inner_dim,
+            layers=depth,
+            heads=heads, 
+            attn_mask=None
+        )
+
+        self.layer_norm = nn.LayerNorm(inner_dim)
+        self.mlp_out = nn.Linear(inner_dim, output_dim)
+
+    def forward(self, x):
+        B, H, W, K, _ = x.shape
+        x = self.embed_fn(x)
+        x = self.mlp_in(x)
+        x = Rearrange('b h w k c -> (b h w) k c')(x)
+        x = self.transformer_kernel(x)
+
+        x = self.layer_norm(x)
+        x = x.mean(-2)
+        x = x.reshape(B, H*W, self.inner_dim)
+        x = self.transformer_patch(x)
+        
+        x = x.mean(-2)
+        x = self.mlp_out(x)
+
+        return x
+
 
 class BlurEncoder(nn.Module):
     """
@@ -677,31 +719,46 @@ class BlurCLIP(nn.Module):
                  ):
         super().__init__()
         
-        self.k_encoder = KernelEncoder(kernel_size=61, output_dim=128, token_dim=128, channel_dim=128, depth=2)
+        self.k_encoder = KernelMLPMixerEncoder(kernel_size=61, output_dim=128, token_dim=128, channel_dim=128, depth=2)
+        #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
         self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
         
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.14))
         self.initialize_parameters()
-
+        
+        #nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
     def initialize_parameters(self):
         if isinstance(self.b_encoder, BlurEncoder):
-            if self.b_encoder.attnpool is not None:
-                std = self.visual.attnpool.c_proj.in_features ** -0.5
-                nn.init.normal_(self.b_encoder.attnpool.q_proj.weight, std=std)
-                nn.init.normal_(self.b_encoder.attnpool.k_proj.weight, std=std)
-                nn.init.normal_(self.b_encoder.attnpool.v_proj.weight, std=std)
-                nn.init.normal_(self.b_encoder.attnpool.c_proj.weight, std=std)
-
             for resnet_block in [self.b_encoder.layer1, self.b_encoder.layer2, self.b_encoder.layer3, self.b_encoder.layer4]:
                 for name, param in resnet_block.named_parameters():
                     if name.endswith("bn3.weight"):
                         nn.init.zeros_(param)
-
+            for name, param in self.b_encoder.named_parameters():
+                if name.endswith("conv1.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                if name.endswith("conv2.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                if name.endswith("conv3.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                if name.endswith("conv_out.weight"):
+                   nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+        if isinstance(self.k_encoder, KernelMLPMixerEncoder):
+            #for resnet_block in [self.b_encoder.layer1, self.b_encoder.layer2, self.b_encoder.layer3, self.b_encoder.layer4]:
+            for name, param in self.k_encoder.named_parameters():
+                if name.startswith('mixer_blocks') and name.endswith("net.0.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                if name.startswith('mixer_blocks') and name.endswith("net.3.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                if name.endswith("mlp_in.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                if name.endswith("mlp_out.weight"):
+                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
     def forward(self, image, kernel):
         #print(kernel[:, :, :, 0, 0])
         embed_i = self.b_encoder(image)
         embed_k = self.k_encoder(kernel)
-        
+        #if torch.sum(torch.isnan(embed_i)) > 0 or torch.sum(torch.isnan(embed_k)) > 0:
+        #    import pdb; pdb.set_trace()
         # normalize
         embed_i = embed_i / embed_i.norm(dim=1, keepdim=True)
         embed_k = embed_k / embed_k.norm(dim=1, keepdim=True)
@@ -713,7 +770,6 @@ class BlurCLIP(nn.Module):
         logits_per_kernel = logits_per_image.t()
 
         #embed_k = self.kernelnet(kernel)
-
         #return embed_i, embed_k
         #loss = clip_loss(logits_per_kernel)
         return logits_per_image, logits_per_kernel#, loss
