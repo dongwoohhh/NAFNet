@@ -106,7 +106,7 @@ def create_dataloader(dataset,
             worker_init_fn, num_workers=num_workers, rank=rank,
             seed=seed) if seed is not None else None
     elif phase in ['val', 'test']:  # validation
-        if dataset_opt['batch_size_per_gpu'] is not None:
+        if 'batch_size_per_gpu' in dataset_opt:
             dataloader_args = dict(
                 dataset=dataset, batch_size=dataset_opt['batch_size_per_gpu'], shuffle=False, num_workers=0)
         else:

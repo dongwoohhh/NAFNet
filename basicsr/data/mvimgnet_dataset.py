@@ -73,9 +73,20 @@ class MVImgNetDataset(data.Dataset):
                 [self.lq_folder, self.gt_folder], ['lq', 'gt'],
                 self.opt['meta_info_file'], self.filename_tmpl)
         else:
-            self.paths = paired_paths_from_folder(
-                [self.lq_folder, self.gt_folder], ['lq', 'gt'],
-                self.filename_tmpl)
+            if isinstance(self.lq_folder, str):
+                self.paths = paired_paths_from_folder(
+                    [self.lq_folder, self.gt_folder], ['lq', 'gt'],
+                    self.filename_tmpl)
+            elif isinstance(self.lq_folder, list):
+                self.paths = []
+                for i, _ in enumerate(self.lq_folder):
+                    lq_folder = self.lq_folder[i]
+                    gt_folder = self.gt_folder[i]
+
+                    paths = paired_paths_from_folder(
+                    [lq_folder, gt_folder], ['lq', 'gt'],
+                    self.filename_tmpl)
+                    self.paths.extend(paths)
 
     def __getitem__(self, index):
         if self.file_client is None:

@@ -280,7 +280,7 @@ class BaseModel():
         print(' load net keys', load_net.keys)
         # remove unnecessary 'module.'
         for k, v in deepcopy(load_net).items():
-            if k.startswith('module.'):
+            if k.startswith('module.') and v.requires_grad==True:
                 load_net[k[7:]] = v
                 load_net.pop(k)
         self._print_different_keys_loading(net, load_net, strict)
