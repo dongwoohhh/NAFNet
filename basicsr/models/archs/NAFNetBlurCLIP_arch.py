@@ -333,9 +333,9 @@ class NAFNetBlurCLIP(nn.Module):
         self.conv_params_dict = OrderedDict()
         n_params= 0
         #or name.startswith('encoders.2')
+        #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
         for name, param in self.named_parameters(): 
-            if (name.startswith('encoders.0') or name.startswith('encoders.1') or\
-                name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+            if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
                 (name.endswith('weight') or name.endswith('bias')) and \
                     name.find('conv')>0 and name.find('b_encoder')<0:
                 dims=[-1]
@@ -343,16 +343,16 @@ class NAFNetBlurCLIP(nn.Module):
                 #print(name, param.shape)
                 self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
                 n_params = n_params+param.nelement()
-        
+        print(f"##### HYPERNETWORK PARAMS #{str(n_params)}")
         self.fc_hyper1 = nn.Linear(128, 256)
         self.fc_hyper2 = nn.Linear(256, 512)
-        self.fc_hyper3 = nn.Linear(512, 1024)
+        #self.fc_hyper3 = nn.Linear(512, 1024)
         #self.fc_hyper4 = nn.Linear(1024, 2048)
-        self.fc_hyper5 = nn.Linear(1024, n_params)
+        self.fc_hyper5 = nn.Linear(512, n_params)
 
 
         # re-build Encoders.
-        self.n_hyper = 2
+        self.n_hyper = 3
         chan = width
         self.encoders_hyper = nn.ModuleList()
         for i, num in enumerate(enc_blk_nums):
@@ -364,7 +364,7 @@ class NAFNetBlurCLIP(nn.Module):
                 
                 self.encoders.pop(0)
             chan = chan * 2
-        
+        """
         self.decoders_hyper = nn.ModuleList()
         count = 0
         for i, num in enumerate(dec_blk_nums):
@@ -378,7 +378,7 @@ class NAFNetBlurCLIP(nn.Module):
                 )
                 self.decoders.pop(i-count)
                 count=count+1
-        
+        """
         #for name, param in self.named_parameters(): 
             #if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
             #    (name.endswith('weight') or name.endswith('bias')) and \
@@ -424,7 +424,7 @@ class NAFNetBlurCLIP(nn.Module):
         embedding = self.b_encoder(inp)
         x_hyper = F.relu(self.fc_hyper1(embedding))
         x_hyper = F.relu(self.fc_hyper2(x_hyper))
-        x_hyper = F.relu(self.fc_hyper3(x_hyper))
+        #x_hyper = F.relu(self.fc_hyper3(x_hyper))
         #x_hyper = F.relu(self.fc_hyper4(x_hyper))
         x_hyper = self.fc_hyper5(x_hyper)
 
@@ -446,7 +446,7 @@ class NAFNetBlurCLIP(nn.Module):
             x = down(x)
         """
         x = self.middle_blks(x)
-        """
+        
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = up(x)
             x = x + enc_skip
@@ -466,14 +466,14 @@ class NAFNetBlurCLIP(nn.Module):
                 
                 x = self.decoders_hyper[i-self.n_hyper](x, weights_and_biases[self.n_hyper+count])
                 count+=1
-        
+        """
         x = self.ending(x)
         x = x + inp
 
         return x[:, :, :H, :W]
     
     def parse_weights_and_biases(self, x):
-        weights_and_biases = [{} for _ in range(2*self.n_hyper)]
+        weights_and_biases = [{} for _ in range(self.n_hyper)]
         start = 0
         for k, v in self.conv_params_dict.items():
             _, i_block, i_layer, name_conv, name_param = k.split('.')
