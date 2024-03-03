@@ -16,10 +16,13 @@ datasets:
   train:
     name: MVImgNet-blur-train
     type: MVImgNetDataset
-    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target]
-    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input_noise]
+    dataroot_gt: [/mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/target, /mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/target]
+    dataroot_lq: [/mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/input, /mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/input_noise]
     #dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target]
     #dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input_noise]
+    
+    #dataroot_gt: [/mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/target, /mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1K/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1K/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linearV/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linearV/target]
+    #dataroot_lq: [/mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/input_noise, /mnt/disk1/dongwool/results_nerf/gs-blur/renders_triplet/input, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1K/input, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1K/input_noise, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1/input, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_r1/input_noise, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linear/input_noise, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linearV/input_noise, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linear/input, /mnt/disk2/dongwool/results_nerf/gs-blur/renders_linearV/input]
 
     filename_tmpl: '{}'
     io_backend:
@@ -40,8 +43,8 @@ datasets:
   val:
     name: gopro-test
     type: PairedImageDataset
-    dataroot_gt: ./datasets/GoPro_Large/test/target.lmdb
-    dataroot_lq: ./datasets/GoPro_Large/test/input.lmdb
+    dataroot_gt: /mnt/disk2/dongwool/datasets/GoPro/test/target.lmdb
+    dataroot_lq: /mnt/disk2/dongwool/datasets/GoPro/test/input.lmdb
     io_backend:
       type: lmdb
 
