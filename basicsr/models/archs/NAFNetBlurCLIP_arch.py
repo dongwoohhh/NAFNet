@@ -344,11 +344,11 @@ class NAFNetBlurCLIP(nn.Module):
                 self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
                 n_params = n_params+param.nelement()
         print(f"##### HYPERNETWORK PARAMS #{str(n_params)}")
-        self.fc_hyper1 = nn.Linear(128, 256)
-        self.fc_hyper2 = nn.Linear(256, 512)
+        self.fc_hyper1 = nn.Linear(128, 256, bias=False)
+        self.fc_hyper2 = nn.Linear(256, 512, bias=False)
         #self.fc_hyper3 = nn.Linear(512, 1024)
         #self.fc_hyper4 = nn.Linear(1024, 2048)
-        self.fc_hyper5 = nn.Linear(512, n_params)
+        self.fc_hyper5 = nn.Linear(512, n_params, bias=False)
 
 
         # re-build Encoders.
