@@ -91,6 +91,7 @@ def create_dataloader(dataset,
             multiplier = 1 if num_gpu == 0 else num_gpu
             batch_size = dataset_opt['batch_size_per_gpu'] * multiplier
             num_workers = dataset_opt['num_worker_per_gpu'] * multiplier
+            
         dataloader_args = dict(
             dataset=dataset,
             batch_size=batch_size,

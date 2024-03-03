@@ -1,0 +1,116 @@
+# ------------------------------------------------------------------------
+# Copyright (c) 2022 megvii-model. All Rights Reserved.
+# ------------------------------------------------------------------------
+# Modified from BasicSR (https://github.com/xinntao/BasicSR)
+# Copyright 2018-2020 BasicSR Authors
+# ------------------------------------------------------------------------
+# general settings
+name: BlurCLIP_v1
+model_type: CLIPModel
+scale: 1
+
+num_gpu: 8
+manual_seed: 42
+
+datasets:
+  train:
+    name: MVImgNet-blur-kernel-train
+    type: MVImgNetKernelDataset
+    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target]
+    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input_noise]
+    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel]
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 256
+    use_flip: true
+    use_rot: true
+
+    scale_kernel: 8
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 8
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: MVImgNet-blur-kernel-val
+    type: MVImgNetKernelDataset
+    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target]
+    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input_noise]
+    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/kernel]
+
+    gt_size: 256
+    scale_kernel: 8
+    batch_size_per_gpu: 8
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+network_g:
+  type: BlurCLIP
+  kernel_size: 61
+
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  optim_g:
+    type: AdamW
+    lr: !!float 1e-4
+    weight_decay: !!float 1e-3
+    betas: [0.9, 0.9]
+
+  scheduler:
+    type: TrueCosineAnnealingLR
+    T_max: 200000
+    eta_min: !!float 1e-7
+
+  total_iter: 200000
+  warmup_iter: -1 # no warm up
+
+  # losses
+  pixel_opt:
+    type: MSELoss
+    loss_weight: 1
+    reduction: mean
+
+# validation settings
+val:
+  val_freq: !!float 2e4
+  save_img: false
+
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
