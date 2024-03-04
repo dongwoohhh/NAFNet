@@ -76,13 +76,16 @@ class CLIPImageRestorationModel(BaseModel):
     def setup_optimizers(self):
         train_opt = self.opt['train']
         optim_params = []
-
+        hyper_params = []
         for k, v in self.net_g.named_parameters():
             if v.requires_grad:
         #         if k.startswith('module.offsets') or k.startswith('module.dcns'):
         #             optim_params_lowlr.append(v)
         #         else:
-                optim_params.append(v)
+                if k.find('mlp_res_block')>0 or k.find('fc_hyper')>0:
+                    hyper_params.append(v)
+                else:
+                    optim_params.append(v)
             # else:
             #     logger = get_root_logger()
             #     logger.warning(f'Params {k} will not be optimized.')
@@ -91,13 +94,15 @@ class CLIPImageRestorationModel(BaseModel):
 
         optim_type = train_opt['optim_g'].pop('type')
         if optim_type == 'Adam':
-            self.optimizer_g = torch.optim.Adam([{'params': optim_params}],
+            self.optimizer_g = torch.optim.Adam([{'params': optim_params},
+                                                 {'params': hyper_params, 'lr':1e-4}],
                                                 **train_opt['optim_g'])
         elif optim_type == 'SGD':
             self.optimizer_g = torch.optim.SGD(optim_params,
                                                **train_opt['optim_g'])
         elif optim_type == 'AdamW':
-            self.optimizer_g = torch.optim.AdamW([{'params': optim_params}],
+            self.optimizer_g = torch.optim.AdamW([{'params': optim_params},
+                                                  {'params': hyper_params, 'lr':1e-4}],
                                                 **train_opt['optim_g'])
             pass
         else:

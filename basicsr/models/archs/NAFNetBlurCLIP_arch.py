@@ -90,17 +90,17 @@ class NAFBlockHyper(nn.Module):
         #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
         #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
-        self.b1 = nn.Parameter(torch.randn(dw_channel), requires_grad=True)
-        nn.init.kaiming_normal_(self.w1, mode='fan_out', nonlinearity='relu')
+        self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
         
         self.w2 = nn.Parameter(torch.randn(dw_channel, 1, 3, 3), requires_grad=True)
-        self.b2 = nn.Parameter(torch.randn(dw_channel))
-        nn.init.kaiming_normal_(self.w2, mode='fan_out', nonlinearity='relu')
+        self.b2 = nn.Parameter(torch.zeros(dw_channel))
+        nn.init.kaiming_uniform_(self.w2, mode='fan_in', nonlinearity='relu')
         
 
         self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
-        self.b3 = nn.Parameter(torch.randn(c))
-        nn.init.kaiming_normal_(self.w3, mode='fan_out', nonlinearity='relu')
+        self.b3 = nn.Parameter(torch.zeros(c))
+        nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
         
 
         # Simplified Channel Attention
@@ -118,12 +118,12 @@ class NAFBlockHyper(nn.Module):
         #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
 
         self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
-        self.b4 = nn.Parameter(torch.randn(ffn_channel), requires_grad=True)
-        nn.init.kaiming_normal_(self.w4, mode='fan_out', nonlinearity='relu')
+        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
         
         self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
-        self.b5 = nn.Parameter(torch.randn(c), requires_grad=True)
-        nn.init.kaiming_normal_(self.w5, mode='fan_out', nonlinearity='relu')
+        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
 
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
@@ -299,12 +299,15 @@ class ResMLPModule(nn.Module):
         self.fc2 = nn.Linear(n_channels, n_channels)
         self.norm1 = nn.LayerNorm(n_channels)
         self.norm2 = nn.LayerNorm(n_channels)
+
+        nn.init.kaiming_normal_(self.fc1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc2.weight, mode='fan_out', nonlinearity='relu')
     def forward(self, x):
 
         residual = x
         #x = F.gelu(x)
         x = self.norm1(self.fc1(x))
-        x = F.gelu(x)
+        x = F.relu(x)
         x = self.norm2(self.fc2(x))
         out = x + residual
 
@@ -392,7 +395,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.mlp_res_block1 = ResMLPModule(256)
         self.mlp_res_block2 = ResMLPModule(256)
         
-        self.fc_hyper1 = nn.Linear(128, 256)
+        #self.fc_hyper1 = nn.Linear(128, 256)
         #self.fc_hyper2_0 = nn.Linear(256, 512)
         #self.fc_hyper2_1 = nn.Linear(256, 512)
         #self.fc_hyper2_2 = nn.Linear(256, 512)
@@ -402,10 +405,14 @@ class NAFNetBlurCLIP(nn.Module):
         #self.fc_hyper3_1 = nn.Linear(512, n_params1)
         #self.fc_hyper3_2 = nn.Linear(512, n_params2)
 
-        self.fc_hyper1 = nn.Linear(128, 256, bias=False)
-        self.fc_hyper2 = nn.Linear(256, 512, bias=False)
+        self.fc_hyper1 = nn.Linear(128, 256)
+        self.fc_hyper2 = nn.Linear(256, 512)
         self.fc_hyper5 = nn.Linear(512, n_params)
     
+        nn.init.kaiming_normal_(self.fc_hyper1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc_hyper2.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc_hyper5.weight, mode='fan_out', nonlinearity='relu')
+
         self.norm2 = nn.LayerNorm(256)
         self.norm3 = nn.LayerNorm(512)
 

@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_NAFNet_v5
+name: BlurCLIP_NAFNet_v5_lr1e-4
 model_type: CLIPImageRestorationModel
 scale: 1
 
