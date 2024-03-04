@@ -176,6 +176,18 @@ class CLIPModel(BaseModel):
         self.output = (preds / count_mt).to(self.device)
         self.lq = self.origin_lq
 
+    def compute_pdist(self, kernel):
+        #kernel_sparse = kernel[:, ::4, ::4]
+        B, kH, kW, nK, _ = kernel.shape
+
+        kernel_flatten = kernel.reshape(B, -1, 2)
+        diff = kernel_flatten.unsqueeze(1) - kernel_flatten.unsqueeze(0)
+
+        dist = torch.sum(torch.sqrt(torch.sum(diff**2, dim=-1)), dim=-1) / (kH*kW*nK)
+
+        return dist
+        
+
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
 
@@ -184,14 +196,20 @@ class CLIPModel(BaseModel):
 
         #if not isinstance(logits_per_kernel, list):
         #    logits_per_kernel = [logits_per_kernel]
-
+        
         self.output = logits_per_kernel
+        
+        pdist_kernel = self.compute_pdist(self.kernel)
+        scale_softmax = self.opt['datasets']['train']['gt_size']
+        torch.set_printoptions(precision=3)
+        prob_kernel = torch.softmax(-scale_softmax*pdist_kernel, dim=1)
+        #import pdb; pdb.set_trace()
         #print(logits_per_kernel)
         l_total = 0
         loss_dict = OrderedDict()
         # cross entropy loss
-        kernel_loss = F.cross_entropy(logits_per_kernel, torch.arange(len(logits_per_kernel), device=self.device))
-        image_loss = F.cross_entropy(logits_per_kernel.t(), torch.arange(len(logits_per_kernel), device=self.device))
+        kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
+        image_loss = F.cross_entropy(logits_per_kernel.t(), prob_kernel)
 
         l_ce = (kernel_loss + image_loss) / 2.0
 
@@ -216,23 +234,7 @@ class CLIPModel(BaseModel):
             
             logits_per_image, logits_per_kernel = self.net_g(self.lq, self.kernel)
             self.output = logits_per_kernel.detach().cpu()
-            """
-            n = len(self.lq)
-            outs = []
-            m = self.opt['val'].get('max_minibatch', n)
-            i = 0
-            while i < n:
-                j = i + m
-                if j >= n:
-                    j = n
-                pred = self.net_g(self.lq[i:j])
-                if isinstance(pred, list):
-                    pred = pred[-1]
-                outs.append(pred.detach().cpu())
-                i = j
-
-            self.output = torch.cat(outs, dim=0)
-            """
+            
         self.net_g.train()
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
@@ -293,65 +295,6 @@ class CLIPModel(BaseModel):
 
             cnt += 1
             
-            """
-            visuals = self.get_current_visuals()
-            sr_img = tensor2img([visuals['result']], rgb2bgr=rgb2bgr)
-            if 'gt' in visuals:
-                gt_img = tensor2img([visuals['gt']], rgb2bgr=rgb2bgr)
-                del self.gt
-
-            # tentative for out of GPU memory
-            del self.lq
-            del self.output
-            torch.cuda.empty_cache()
-
-            if save_img:
-                if sr_img.shape[2] == 6:
-                    L_img = sr_img[:, :, :3]
-                    R_img = sr_img[:, :, 3:]
-
-                    # visual_dir = osp.join('visual_results', dataset_name, self.opt['name'])
-                    visual_dir = osp.join(self.opt['path']['visualization'], dataset_name)
-
-                    imwrite(L_img, osp.join(visual_dir, f'{img_name}_L.png'))
-                    imwrite(R_img, osp.join(visual_dir, f'{img_name}_R.png'))
-                else:
-                    if self.opt['is_train']:
-
-                        save_img_path = osp.join(self.opt['path']['visualization'],
-                                                 img_name,
-                                                 f'{img_name}_{current_iter}.png')
-
-                        save_gt_img_path = osp.join(self.opt['path']['visualization'],
-                                                 img_name,
-                                                 f'{img_name}_{current_iter}_gt.png')
-                    else:
-                        save_img_path = osp.join(
-                            self.opt['path']['visualization'], dataset_name,
-                            f'{img_name}.png')
-                        save_gt_img_path = osp.join(
-                            self.opt['path']['visualization'], dataset_name,
-                            f'{img_name}_gt.png')
-
-                    imwrite(sr_img, save_img_path)
-                    imwrite(gt_img, save_gt_img_path)
-
-            if with_metrics:
-                # calculate metrics
-                opt_metric = deepcopy(self.opt['val']['metrics'])
-                if use_image:
-                    for name, opt_ in opt_metric.items():
-                        metric_type = opt_.pop('type')
-                        self.metric_results[name] += getattr(
-                            metric_module, metric_type)(sr_img, gt_img, **opt_)
-                else:
-                    for name, opt_ in opt_metric.items():
-                        metric_type = opt_.pop('type')
-                        self.metric_results[name] += getattr(
-                            metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
-        
-            #cnt += 1
-            """
             if rank == 0:
                 for _ in range(world_size):
                     pbar.update(1)
@@ -363,38 +306,7 @@ class CLIPModel(BaseModel):
 
         if rank == 0:
             pbar.close()
-        """
-        # current_metric = 0.
-        collected_metrics = OrderedDict()
-        if with_metrics:
-            for metric in self.metric_results.keys():
-                collected_metrics[metric] = torch.tensor(self.metric_results[metric]).float().to(self.device)
-            collected_metrics['cnt'] = torch.tensor(cnt).float().to(self.device)
-
-            self.collected_metrics = collected_metrics
         
-        keys = []
-        metrics = []
-        for name, value in self.collected_metrics.items():
-            keys.append(name)
-            metrics.append(value)
-        metrics = torch.stack(metrics, 0)
-        torch.distributed.reduce(metrics, dst=0)
-        if self.opt['rank'] == 0:
-            metrics_dict = {}
-            cnt = 0
-            for key, metric in zip(keys, metrics):
-                if key == 'cnt':
-                    cnt = float(metric)
-                    continue
-                metrics_dict[key] = float(metric)
-
-            for key in metrics_dict:
-                metrics_dict[key] /= cnt
-
-            self._log_validation_metric_values(current_iter, dataloader.dataset.opt['name'],
-                                               tb_logger, metrics_dict)
-        """
         return 0.
 
     def nondist_validation(self, *args, **kwargs):

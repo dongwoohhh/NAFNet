@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_v1
+name: BlurCLIP_v2
 model_type: CLIPModel
 scale: 1
 
@@ -16,9 +16,9 @@ datasets:
   train:
     name: MVImgNet-blur-kernel-train
     type: MVImgNetKernelDataset
-    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target]
-    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input_noise]
-    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel]
+    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/target]
+    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/input_noise]
+    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/kernel]
 
     filename_tmpl: '{}'
     io_backend:
@@ -32,8 +32,8 @@ datasets:
 
     # data loader
     use_shuffle: true
-    num_worker_per_gpu: 8
-    batch_size_per_gpu: 8
+    num_worker_per_gpu: 16
+    batch_size_per_gpu: 16
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 

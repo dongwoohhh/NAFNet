@@ -158,9 +158,10 @@ class MVImgNetKernelDataset(data.Dataset):
         kernel_path = self.paths[index]['kernel_path']
         kernel = torch.load(kernel_path, map_location=torch.device('cpu')).float()
 
-        if torch.sum(torch.isnan(kernel)) >0:
+        if torch.sum(torch.isnan(kernel)) >0 or torch.sum(torch.isinf(kernel)) >0:
             print(self.paths[index]['kernel_path'])
             kernel = torch.where(torch.isnan(kernel), torch.zeros_like(kernel), kernel)
+            
         
         H, W, _ = img_lq.shape
         img_lq = img_lq[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
