@@ -179,14 +179,65 @@ class CLIPModel(BaseModel):
     def compute_pdist(self, kernel):
         #kernel_sparse = kernel[:, ::4, ::4]
         B, kH, kW, nK, _ = kernel.shape
-
+        kernel_backward = kernel.flip(dims=(-2,))
+        
         kernel_flatten = kernel.reshape(B, -1, 2)
-        diff = kernel_flatten.unsqueeze(1) - kernel_flatten.unsqueeze(0)
+        kernel_flatten_backward = kernel_backward.reshape(B, -1, 2)
+        
+        diff_forward = kernel_flatten.unsqueeze(1) - kernel_flatten.unsqueeze(0)
+        diff_backward = kernel_flatten.unsqueeze(1) - kernel_flatten_backward.unsqueeze(0)
 
-        dist = torch.sum(torch.sqrt(torch.sum(diff**2, dim=-1)), dim=-1) / (kH*kW*nK)
+        dist = torch.minimum(torch.sqrt(torch.sum(diff_forward**2, dim=-1)), torch.sqrt(torch.sum(diff_backward**2, dim=-1)))
+        dist = torch.sum(dist, dim=-1) / (kH*kW*nK)
 
         return dist
+
+
+    def vis_kernel_for_debug(self, image, kernel, gt_size, scale_kernel):
+
+        n_kernel= kernel.shape[1]
+        N, _, H, W = image.shape
+        kernel = kernel*gt_size
         
+        stride = 32
+        window_size = 100
+
+        #output = torch.zeros((window_size*(H//stride + 1), window_size*(W//stride + 1)))
+        
+        images_out = []
+        for i_b in range(N):
+            image_chw = image[i_b].clone()#.permute(1,2,0)
+            kernel_i = kernel[i_b]
+            for ix, x_i in enumerate(range(stride//2, W-1, stride)):
+                for iy, y_i in enumerate(range(stride//2, H-1, stride)):
+                    """
+                    window_i = torch.zeros(100, 100).long()
+                    window_i[window_size//2, window_size//2] = 255
+                    window_i[:, window_size-1] = 255
+                    window_i[:, 0] = 255
+                    window_i[0, :] = 255
+                    window_i[window_size-1, :] = 255
+                    
+                    kx = torch.clip(kernel[:, 0, y_i//stride, x_i//stride]+window_size//2, 0, window_size-1).long()
+                    ky = torch.clip(kernel[:, 1, y_i//stride, x_i//stride]+window_size//2, 0, window_size-1).long()
+                    
+                    window_i[kx, ky] = 255
+                    output[window_size*iy:window_size*(iy+1), window_size*ix:window_size*(ix+1)] = window_i
+                    """
+                    
+                    
+                    kx_image = torch.clip(x_i+kernel_i[y_i//scale_kernel, x_i//scale_kernel, :, 0], 0, W-1).long()
+                    ky_image = torch.clip(y_i+kernel_i[ y_i//scale_kernel, x_i//scale_kernel, :, 1,], 0, H-1).long()
+                    
+                    image_chw[0, ky_image, kx_image] = 1.
+                    image_chw[1, ky_image, kx_image] = 0.
+                    image_chw[2, ky_image, kx_image] = 0.
+
+            images_out.append(image_chw)
+        images_out = torch.stack(images_out)
+
+        return images_out
+
 
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
@@ -201,7 +252,7 @@ class CLIPModel(BaseModel):
         
         pdist_kernel = self.compute_pdist(self.kernel)
         scale_softmax = self.opt['datasets']['train']['gt_size']
-        torch.set_printoptions(precision=3)
+        #torch.set_printoptions(precision=3)
         prob_kernel = torch.softmax(-scale_softmax*pdist_kernel, dim=1)
         #import pdb; pdb.set_trace()
         #print(logits_per_kernel)
@@ -240,6 +291,7 @@ class CLIPModel(BaseModel):
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
         dataset_name = dataloader.dataset.opt['name']
         gt_size = dataloader.dataset.opt['gt_size']
+        scale_kernel = dataloader.dataset.opt['scale_kernel']
         n_images = dataloader.dataset.opt['batch_size_per_gpu']
         with_metrics = self.opt['val'].get('metrics') is not None
         if with_metrics:
@@ -277,7 +329,9 @@ class CLIPModel(BaseModel):
             
             lq_cat = []
             save_img_dir = osp.join(savedir, f'{str(idx)}_images.png')
-            lq_cat = val_data['lq'].permute(1,2,0,3).reshape(3, gt_size, -1)
+            lq_kernel = self.vis_kernel_for_debug(self.lq, self.kernel, gt_size, scale_kernel)
+            #import pdb; pdb.set_trace()
+            lq_cat = lq_kernel.permute(1,2,0,3).reshape(3, gt_size, -1)
             lq_upper = lq_cat[...,:n_images//2*gt_size]
             lq_lower = lq_cat[...,n_images//2*gt_size:]
             lq2line = torch.cat([lq_upper, torch.zeros_like(lq_upper), lq_lower], dim=1)
