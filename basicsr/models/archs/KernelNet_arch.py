@@ -569,7 +569,7 @@ class KernelMLPMixerEncoder(nn.Module):
     - The final pooling layer is a QKV attention instead of an average pool
     """
 
-    def __init__(self, kernel_size, output_dim, token_dim, channel_dim, depth):
+    def __init__(self, kernel_size, output_dim, token_dim, channel_dim, depth, input_resolution=32, heads=4):
         super().__init__()
         
         self.embed_fn, self.input_dim = get_embedder(multires=10)
@@ -580,6 +580,8 @@ class KernelMLPMixerEncoder(nn.Module):
             self.mixer_blocks.append(MixerBlock(token_dim, kernel_size, token_dim, channel_dim))
 
         self.layer_norm = nn.LayerNorm(token_dim)
+
+        self.attnpool = AttentionPool2d(input_resolution, token_dim, heads, output_dim)
 
         self.mlp_out = nn.Linear(token_dim, output_dim)
     def forward(self, x):
@@ -593,10 +595,13 @@ class KernelMLPMixerEncoder(nn.Module):
         for mixer_block in self.mixer_blocks:
             x = mixer_block(x)
         x = self.layer_norm(x)
-        
+
         x = x.reshape(B, H, W, K, -1)
-        x = x.mean(-2).mean(-2).mean(-2)
-        x = self.mlp_out(x)
+        x = x.mean(-2)#.mean(-2).mean(-2)
+        x = Rearrange('b h w c -> b c h w')(x)
+        #x = self.mlp_out(x)
+
+        x = self.attnpool(x)
         return x
 
 class KernelAttentionEncoder(nn.Module):
@@ -649,7 +654,7 @@ class BlurEncoder(nn.Module):
     - The final pooling layer is a QKV attention instead of an average pool
     """
 
-    def __init__(self, layers, output_dim, width=64): #heads, input_resolution=256,
+    def __init__(self, layers, output_dim, width=64, input_resolution=256, heads=4):
         super().__init__()
         self.output_dim = output_dim
         #self.input_resolution = input_resolution
@@ -673,10 +678,10 @@ class BlurEncoder(nn.Module):
         self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
         self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
 
-        self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
-        #embed_dim = width * 32  # the ResNet feature dimension
-        #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
-        self.attnpool = None
+        #self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
+        embed_dim = width * 32  # the ResNet feature dimension
+        self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
+        #self.attnpool = None
 
 
     def _make_layer(self, planes, blocks, stride=1):
@@ -703,11 +708,11 @@ class BlurEncoder(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        x = self.conv_out(x)
-        x = x.mean(-1).mean(-1)
+        #x = self.conv_out(x)
+        #x = x.mean(-1).mean(-1)
+    
+        x = self.attnpool(x)
         
-        #x = self.attnpool(x)
-
         return x
 
 class BlurCLIP(nn.Module):

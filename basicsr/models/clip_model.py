@@ -179,6 +179,9 @@ class CLIPModel(BaseModel):
     def compute_pdist(self, kernel):
         #kernel_sparse = kernel[:, ::4, ::4]
         B, kH, kW, nK, _ = kernel.shape
+        
+        length_kernel = self.compute_length_kernel(kernel)
+
         kernel_backward = kernel.flip(dims=(-2,))
         
         kernel_flatten = kernel.reshape(B, -1, 2)
@@ -186,11 +189,30 @@ class CLIPModel(BaseModel):
         
         diff_forward = kernel_flatten.unsqueeze(1) - kernel_flatten.unsqueeze(0)
         diff_backward = kernel_flatten.unsqueeze(1) - kernel_flatten_backward.unsqueeze(0)
+        #import pdb; pdb.set_trace()
+        
+        dist_forward = torch.sqrt(torch.sum(diff_forward**2, dim=-1)).reshape(B, B, kH, kW, nK)
+        dist_backward = torch.sqrt(torch.sum(diff_backward**2, dim=-1)).reshape(B, B, kH, kW, nK)
+        #import pdb; pdb.set_trace()
+        dist_forward = dist_forward / (length_kernel[:, None, :, :, None]+1.0)
+        dist_backward = dist_backward / (length_kernel[:, None, :, :, None]+1.0)
 
-        dist = torch.minimum(torch.sqrt(torch.sum(diff_forward**2, dim=-1)), torch.sqrt(torch.sum(diff_backward**2, dim=-1)))
-        dist = torch.sum(dist, dim=-1) / (kH*kW*nK)
+        dist_forward = torch.mean(dist_forward, dim=-1).mean(-1).mean(-1)
+        dist_backward = torch.mean(dist_backward, dim=-1).mean(-1).mean(-1)
+
+        dist = torch.minimum(dist_forward, dist_backward)
+        
 
         return dist
+
+    def compute_length_kernel(self, kernel):
+        delta_xy = kernel[..., :-1, :] - kernel[..., 1:, :]
+        dist_xy = torch.norm(delta_xy, dim=-1)
+        length_kernel = torch.sum(dist_xy, dim=-1)
+        #import pdb;pdb.set_trace()
+
+        return length_kernel
+        
 
 
     def vis_kernel_for_debug(self, image, kernel, gt_size, scale_kernel):
@@ -249,11 +271,15 @@ class CLIPModel(BaseModel):
         #    logits_per_kernel = [logits_per_kernel]
         
         self.output = logits_per_kernel
+        epsilon = self.opt['train']['epsilon']
+        kernel_pixel = self.opt['datasets']['train']['gt_size']*self.kernel
+        pdist_kernel = self.compute_pdist(kernel_pixel)
         
-        pdist_kernel = self.compute_pdist(self.kernel)
-        scale_softmax = self.opt['datasets']['train']['gt_size']
         #torch.set_printoptions(precision=3)
-        prob_kernel = torch.softmax(-scale_softmax*pdist_kernel, dim=1)
+        #prob_kernel = torch.softmax(1/(scale_softmax*pdist_kernel+epsilon), dim=1)
+        
+        prob_kernel = torch.softmax(-epsilon*pdist_kernel, dim=1)
+        #prob_image = torch.softmax(-epsilon*pdist_kernel.)
         #import pdb; pdb.set_trace()
         #print(logits_per_kernel)
         l_total = 0
@@ -298,14 +324,14 @@ class CLIPModel(BaseModel):
             self.metric_results = {
                 'l_ce': 0
             }
-
+        
         rank, world_size = get_dist_info()
         if rank == 0:
             pbar = tqdm(total=len(dataloader), unit='image')
             #pbar = tqdm(total=1000, unit='image')
 
         cnt = 0
-
+        epsilon = self.opt['train']['epsilon']
         for idx, val_data in enumerate(dataloader):
             if idx % world_size != rank:
                 continue
@@ -316,9 +342,13 @@ class CLIPModel(BaseModel):
             #    self.grids()
 
             self.test()
-            
-            kernel_loss = F.cross_entropy(self.output, torch.arange(len(self.output), device=self.output.device))
-            image_loss = F.cross_entropy(self.output.t(), torch.arange(len(self.output), device=self.output.device))
+            kernel_pixel = gt_size*self.kernel
+            pdist_kernel = self.compute_pdist(kernel_pixel)
+            #torch.set_printoptions(precision=3)
+            prob_kernel = torch.softmax(-epsilon*pdist_kernel, dim=1).cpu()
+
+            kernel_loss = F.cross_entropy(self.output, prob_kernel)
+            image_loss = F.cross_entropy(self.output.t(), prob_kernel)
 
             l_ce = (kernel_loss + image_loss) / 2.0
 
@@ -338,14 +368,23 @@ class CLIPModel(BaseModel):
             torchvision.utils.save_image(lq2line, save_img_dir)
                 
             
-            save_fig_dir = osp.join(savedir, f'{str(idx)}_confusion.png')
-            prob_kernel = F.softmax(self.output, dim=1).detach().cpu().numpy()
-            df_cm = pd.DataFrame(prob_kernel, index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
+            save_fig_dir = osp.join(savedir, f'{str(idx)}_confusion_pred.png')
+            prob_kernel_pred = F.softmax(self.output, dim=1).detach().cpu().numpy()
+            df_cm = pd.DataFrame(prob_kernel_pred, index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
+            confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
+            figure = confusion.get_figure()
+            #figure.savefig(save_fig_dir, dpi=400)
+
+            figure.clear()
+
+            save_fig_dir = osp.join(savedir, f'{str(idx)}_confusion_gt.png')
+            df_cm = pd.DataFrame(prob_kernel.detach().cpu().numpy(), index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
             confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
             figure = confusion.get_figure()
             figure.savefig(save_fig_dir, dpi=400)
 
             figure.clear()
+
 
             cnt += 1
             
