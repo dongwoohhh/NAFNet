@@ -202,6 +202,7 @@ class CLIPModel(BaseModel):
 
         dist = torch.minimum(dist_forward, dist_backward)
         
+        dist = (dist + dist.t())/2.
 
         return dist
 
@@ -373,7 +374,7 @@ class CLIPModel(BaseModel):
             df_cm = pd.DataFrame(prob_kernel_pred, index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
             confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
             figure = confusion.get_figure()
-            #figure.savefig(save_fig_dir, dpi=400)
+            figure.savefig(save_fig_dir, dpi=400)
 
             figure.clear()
 
