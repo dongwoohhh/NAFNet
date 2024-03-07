@@ -724,9 +724,9 @@ class BlurCLIP(nn.Module):
                  ):
         super().__init__()
         
-        self.k_encoder = KernelMLPMixerEncoder(kernel_size=61, output_dim=128, token_dim=128, channel_dim=128, depth=2)
+        self.k_encoder = KernelMLPMixerEncoder(kernel_size=61, output_dim=256, token_dim=128, channel_dim=128, depth=2)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
-        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
+        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=256, width=64)
         
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.14))
         self.initialize_parameters()
