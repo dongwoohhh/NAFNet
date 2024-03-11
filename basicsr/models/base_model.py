@@ -278,11 +278,13 @@ class BaseModel():
         if param_key is not None:
             load_net = load_net[param_key]
         print(' load net keys', load_net.keys)
+        
         # remove unnecessary 'module.'
         for k, v in deepcopy(load_net).items():
             if k.startswith('module.') and v.requires_grad==True:
                 load_net[k[7:]] = v
                 load_net.pop(k)
+
         self._print_different_keys_loading(net, load_net, strict)
         net.load_state_dict(load_net, strict=strict)
 

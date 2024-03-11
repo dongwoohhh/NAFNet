@@ -143,12 +143,14 @@ class NAFBlockHyper(nn.Module):
         w1 = weights_and_bias['conv1']['weight']
         b1 = weights_and_bias['conv1']['bias']
         #import pdb; pdb.set_trace()
-        x = [F.conv2d(x[i:i+1], self.w1+w1[i], self.b1+b1[i], padding=0) for i in range(B)]
+        #x = [F.conv2d(x[i:i+1], self.w1+w1[i], self.b1+b1[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w1[i], b1[i], padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
         
         w2 = weights_and_bias['conv2']['weight']
         b2 = weights_and_bias['conv2']['bias']
-        x = [F.conv2d(x[i:i+1], self.w2+w2[i], self.b2+b2[i], padding=1, groups=self.dw_channel) for i in range(B)]
+        #x = [F.conv2d(x[i:i+1], self.w2+w2[i], self.b2+b2[i], padding=1, groups=self.dw_channel) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w2[i], b2[i], padding=1, groups=self.dw_channel) for i in range(B)]
         x = torch.cat(x, dim=0)
         
         x = self.sg(x)
@@ -156,7 +158,8 @@ class NAFBlockHyper(nn.Module):
         
         w3 = weights_and_bias['conv3']['weight']
         b3 = weights_and_bias['conv3']['bias']
-        x = [F.conv2d(x[i:i+1], self.w3+w3[i], self.b3+b3[i], padding=0) for i in range(B)]
+        #x = [F.conv2d(x[i:i+1], self.w3+w3[i], self.b3+b3[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w3[i], b3[i], padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
         
 
@@ -168,14 +171,16 @@ class NAFBlockHyper(nn.Module):
 
         w4 = weights_and_bias['conv4']['weight']
         b4 = weights_and_bias['conv4']['bias']
-        x = [F.conv2d(x[i:i+1], self.w4+w4[i], self.b4+b4[i], padding=0) for i in range(B)]
+        #x = [F.conv2d(x[i:i+1], self.w4+w4[i], self.b4+b4[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w4[i], b4[i], padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
 
         x = self.sg(x)
 
         w5 = weights_and_bias['conv5']['weight']
         b5 = weights_and_bias['conv5']['bias']
-        x = [F.conv2d(x[i:i+1], self.w5+w5[i], self.b5+b5[i], padding=0) for i in range(B)]
+        #x = [F.conv2d(x[i:i+1], self.w5+w5[i], self.b5+b5[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w5[i], b5[i], padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
 
         x = self.dropout2(x)
@@ -487,11 +492,13 @@ class NAFNetBlurCLIP(nn.Module):
         inp = self.check_image_size(inp)
 
         x = self.intro(inp)
+
+        self.b_encoder.eval()
         embedding = self.b_encoder(inp)
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
-        x_hyper = self.mlp_res_block1(x_hyper)
-        x_hyper = self.mlp_res_block2(x_hyper)
+        #x_hyper = self.mlp_res_block1(x_hyper)
+        #x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
         x_hyper = self.fc_hyper5(x_hyper)
         """

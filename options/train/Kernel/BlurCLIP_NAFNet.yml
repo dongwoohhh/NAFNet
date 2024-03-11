@@ -5,11 +5,11 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_NAFNet_v5_lr1e-4
+name: BlurCLIP_NAFNet_v6_vanilla_lr_1e-5_wd_1e-4_noresblock
 model_type: CLIPImageRestorationModel
 scale: 1
 
-num_gpu: 8
+num_gpu: 4
 manual_seed: 42
 
 datasets:
@@ -36,7 +36,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 8
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 8
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 
@@ -51,7 +51,7 @@ datasets:
 
 network_g:
   type: NAFNetBlurCLIPLocal
-  pretrained_clip_dir: experiments/BlurCLIP_v1/models/net_g_120000.pth
+  pretrained_clip_dir: experiments/BlurCLIP_v6/models/net_g_200000.pth
   width: 32
   enc_blk_nums: [1, 1, 1, 28]
   middle_blk_num: 1
