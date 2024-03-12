@@ -240,11 +240,15 @@ class NAFBlockDDF(nn.Module):
         #x = self.conv2(x)
 
         w2 = weights_and_bias['conv2']['weight'].squeeze(2)
-        B, C, kH, kW, H, W = w2.shape
+        B, C, kH, kW, wH, wW = w2.shape
+        _, _, H, W = x.shape
+        
         w2 = Rearrange('b c kh kw h w -> (b c) (kh kw) h w')(w2)
+        w2 = F.interpolate(w2, size=(H, W), mode='bilinear')
         w2 = w2.contiguous()
         x = Rearrange('b c h w -> (b c) h w')(x).unsqueeze(1)
-
+        #print(w2.shape, x.shape)
+        #import pdb; pdb.set_trace()
         x = ddf(x, torch.ones((B*C, 1, kH, kW) ,device=torch.device('cuda')), w2, 3)
         x = x.reshape(B, C, H, W)
         
@@ -460,6 +464,7 @@ class NAFNetBlurCLIP(nn.Module):
         n_params3 = 0
         #or name.startswith('encoders.2')
         #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+        # 
         #or name.endswith('bias'))
         for name, param in self.named_parameters(): 
             if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2') or name.startswith('encoders.3')) and \
@@ -599,7 +604,7 @@ class NAFNetBlurCLIP(nn.Module):
         x_hyper = self.fc_hyper(embedding)
         """
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
-        x_hyper = F.interpolate(x_hyper, scale_factor=32, mode='bilinear')
+        #x_hyper = F.interpolate(x_hyper, scale_factor=32, mode='bilinear')
 
         """
         x_hyper = self.mlp_res_block1(x_hyper)
@@ -671,7 +676,6 @@ class NAFNetBlurCLIP(nn.Module):
         start = 0
         for k, v in self.conv_params_dict.items():
             _, i_block, i_layer, name_conv, name_param = k.split('.')
-            print(k)
             n = v['n_elements']
             #in_plane, out_plane, kH, kW = v['shape']
             end = start + n
@@ -681,11 +685,11 @@ class NAFNetBlurCLIP(nn.Module):
             if name_conv not in weights_and_biases[int(i_block)][int(i_layer)]:
                 weights_and_biases[int(i_block)][int(i_layer)][name_conv] = {'weight': None, 'bias': None}
 
-            v['shape'].extend([H, W])
-            weights_and_biases[int(i_block)][int(i_layer)][name_conv][name_param] = x[:, start:end].reshape(v['shape'])
+            shape = v['shape'] + [H, W]
+            weights_and_biases[int(i_block)][int(i_layer)][name_conv][name_param] = x[:, start:end].reshape(shape)
             
             start=end
-
+        print(end)
         return weights_and_biases
 
 
