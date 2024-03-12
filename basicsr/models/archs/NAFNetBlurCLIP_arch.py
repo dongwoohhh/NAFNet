@@ -244,13 +244,20 @@ class NAFBlockDDF(nn.Module):
         _, _, H, W = x.shape
         
         w2 = Rearrange('b c kh kw h w -> (b c) (kh kw) h w')(w2)
+        
         w2 = F.interpolate(w2, size=(H, W), mode='bilinear')
+        w2 = w2.reshape(B, C, kH*kW, H, W)
         w2 = w2.contiguous()
-        x = Rearrange('b c h w -> (b c) h w')(x).unsqueeze(1)
+        #x = Rearrange('b c h w -> (b c) h w')(x).unsqueeze(1)
         #print(w2.shape, x.shape)
-        #import pdb; pdb.set_trace()
-        x = ddf(x, torch.ones((B*C, 1, kH, kW) ,device=torch.device('cuda')), w2, 3)
-        x = x.reshape(B, C, H, W)
+        
+        #x = ddf(x, torch.ones((B*C, 1, kH, kW) ,device=torch.device('cuda')), w2, 3)
+        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w2[i], 3).squeeze(1) for i in range(B)]
+        #x0 = ddf(x[0].unsqueeze(1), torch.ones((C, 1, kH, kW), device=torch.device('cuda')), w2[0], 3)
+        #x1 = ddf(x[1].unsqueeze(1), torch.ones((C, 1, kH, kW), device=torch.device('cuda')), w2[1], 3).squeeze(1)
+        x = torch.stack(x, dim=0)
+
+        #x = x.reshape(B, C, H, W)
         
         x = self.sg(x)
         x = x * self.sca(x)
@@ -464,7 +471,7 @@ class NAFNetBlurCLIP(nn.Module):
         n_params3 = 0
         #or name.startswith('encoders.2')
         #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
-        # 
+        #  
         #or name.endswith('bias'))
         for name, param in self.named_parameters(): 
             if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2') or name.startswith('encoders.3')) and \
@@ -689,7 +696,7 @@ class NAFNetBlurCLIP(nn.Module):
             weights_and_biases[int(i_block)][int(i_layer)][name_conv][name_param] = x[:, start:end].reshape(shape)
             
             start=end
-        print(end)
+
         return weights_and_biases
 
 
