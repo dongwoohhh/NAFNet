@@ -385,6 +385,7 @@ class CLIPImageRestorationModel(BaseModel):
         self.net_g.train()
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
+        
         dataset_name = dataloader.dataset.opt['name']
         with_metrics = self.opt['val'].get('metrics') is not None
         if with_metrics:
@@ -398,13 +399,13 @@ class CLIPImageRestorationModel(BaseModel):
             pbar = tqdm(total=len(dataloader), unit='image')
 
         cnt = 0
-
+        
         for idx, val_data in enumerate(dataloader):
             if idx % world_size != rank:
                 continue
 
             img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
-
+            torch.cuda.empty_cache()
             self.feed_data(val_data, is_val=True)
             if self.opt['val'].get('grids', False):
                 self.grids()

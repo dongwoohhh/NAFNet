@@ -262,11 +262,12 @@ def main():
                 model.save(epoch, current_iter)
 
             # validation
-            if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0 or current_iter == 1000):
+            if 0: # opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0 or current_iter == 100):
             # if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
                 rgb2bgr = opt['val'].get('rgb2bgr', True)
                 # wheather use uint8 image to compute metrics
                 use_image = opt['val'].get('use_image', True)
+                torch.cuda.empty_cache()
                 model.validation(val_loader, current_iter, tb_logger,
                                  opt['val']['save_img'], rgb2bgr, use_image )
                 log_vars = {'epoch': epoch, 'iter': current_iter, 'total_iter': total_iters}

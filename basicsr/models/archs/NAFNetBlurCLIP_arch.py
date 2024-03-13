@@ -20,7 +20,6 @@ from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
 from basicsr.models.archs.KernelNet_arch import BlurEncoder, Bottleneck
 
-from basicsr.models.archs.ddf import ddf
 from einops.layers.torch import Rearrange
 
 class SimpleGate(nn.Module):
@@ -195,224 +194,6 @@ class NAFBlockHyper(nn.Module):
         
         return y + x * self.gamma
 
-class NAFBlockHyper2(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
-        super().__init__()
-
-        dw_channel = c * DW_Expand
-        self.dw_channel = dw_channel
-        self.c = c
-        #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
-        #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        
-        """
-        self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
-        self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
-        
-        self.w2 = nn.Parameter(torch.randn(dw_channel, 1, 3, 3), requires_grad=True)
-        self.b2 = nn.Parameter(torch.zeros(dw_channel))
-        nn.init.kaiming_uniform_(self.w2, mode='fan_in', nonlinearity='relu')
-        
-
-        self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
-        self.b3 = nn.Parameter(torch.zeros(c))
-        nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
-        
-
-        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
-        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
-        
-        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
-        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
-        """
-        # Simplified Channel Attention
-        self.sca = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
-                      groups=1, bias=True),
-        )
-
-        # SimpleGate
-        self.sg = SimpleGate()
-
-        ffn_channel = FFN_Expand * c
-        #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-
-
-        self.norm1 = LayerNorm2d(c)
-        self.norm2 = LayerNorm2d(c)
-
-        self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
-        self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
-
-        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-
-    def conv1_pixelwise(self, x, w, b):
-        B, _, H, W = x.shape
-        _, Co, Ci, kH, kW, wH, wW = w.shape
-
-        w = Rearrange('b co ci kh kw h w -> b (co ci kh kw) h w')(w)
-        w = F.interpolate(w, size=(H, W), mode='bilinear')
-        w = w.reshape(B, Co, Ci, H, W)
-        w = Rearrange('b co ci h w -> b h w co ci')(w).reshape(B*H*W, Co, Ci)
-
-        b = F.interpolate(b, size=(H, W), mode='bilinear')
-        b = Rearrange('b co h w -> b h w co')(b)
-
-        x = Rearrange('b c h w -> b h w c')(x).reshape(B*H*W, Ci).unsqueeze(-1)
-
-        x = torch.bmm(w, x).reshape(B, H, W, Co) + b
-        x = Rearrange('b h w c -> b c h w')(x)
-        return x
-
-    def convd_pixelwise(self, x, w, b):
-        w = w.squeeze(2)
-        B, _, H, W = x.shape
-        _, C, kH, kW, wH, wW = w.shape
-        
-        w = Rearrange('b c kh kw h w -> (b c) (kh kw) h w')(w)
-        w = F.interpolate(w, size=(H, W), mode='bilinear')
-        w = w.reshape(B, C, kH*kW, H, W)
-        
-        w = w.contiguous()
-        x = x.contiguous()
-        b = F.interpolate(b, size=(H, W), mode='bilinear')
-        #b = Rearrange('b co h w -> b h w co')(b)
-        
-        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w[i], 3, 1, 1, 'mul', 'f').squeeze(1) for i in range(B)]
-        x = torch.stack(x, dim=0)
-
-        x = x + b
-
-        return x
-
-    def forward(self, inp, weights_and_bias):
-        x = inp
-        B, _, H, W = x.shape
-        x = self.norm1(x)
-
-        w1 = weights_and_bias['conv1']['weight']
-        b1 = weights_and_bias['conv1']['bias']
-        
-        x = self.conv1_pixelwise(x, w1, b1)
-
-        w2 = weights_and_bias['conv2']['weight']
-        b2 = weights_and_bias['conv2']['bias']
-        
-        
-        x = self.convd_pixelwise(x, w2, b2)
-
-        
-        x = self.sg(x)
-        x = x * self.sca(x)
-        
-        w3 = weights_and_bias['conv3']['weight']
-        b3 = weights_and_bias['conv3']['bias']
-        x = self.conv1_pixelwise(x, w3, b3)
-        
-        x = self.dropout1(x)
-
-        y = inp + x * self.beta
-
-        x = self.norm2(y)
-
-        w4 = weights_and_bias['conv4']['weight']
-        b4 = weights_and_bias['conv4']['bias']
-        x = self.conv1_pixelwise(x, w4, b4)
-
-        x = self.sg(x)
-
-        w5 = weights_and_bias['conv5']['weight']
-        b5 = weights_and_bias['conv5']['bias']
-        #x = [F.conv2d(x[i:i+1], self.w5+w5[i], self.b5+b5[i], padding=0) for i in range(B)]
-        x = self.conv1_pixelwise(x, w5, b5)
-
-        x = self.dropout2(x)
-        
-        return y + x * self.gamma
-
-
-class NAFBlockDDF(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
-        super().__init__()
-        assert DW_Expand==2
-        assert FFN_Expand==2
-        dw_channel = c * DW_Expand
-        self.dw_channel = dw_channel
-        self.c = c
-        self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
-        self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        
-        # Simplified Channel Attention
-        self.sca = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
-                      groups=1, bias=True),
-        )
-
-        # SimpleGate
-        self.sg = SimpleGate()
-
-        ffn_channel = FFN_Expand * c
-        self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-
-
-        self.norm1 = LayerNorm2d(c)
-        self.norm2 = LayerNorm2d(c)
-
-        self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
-        self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
-
-        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-
-    def forward(self, inp, weights_and_bias):
-        x = inp
-        B = x.shape[0]
-
-        x = self.norm1(x)
-        x = self.conv1(x)
-        #x = self.conv2(x)
-
-        w2 = weights_and_bias['conv2']['weight'].squeeze(2)
-        B, C, kH, kW, wH, wW = w2.shape
-        _, _, H, W = x.shape
-        
-        w2 = Rearrange('b c kh kw h w -> (b c) (kh kw) h w')(w2)
-        
-        w2 = F.interpolate(w2, size=(H, W), mode='bilinear')
-        w2 = w2.reshape(B, C, kH*kW, H, W)
-        w2 = w2.contiguous()
-
-        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w2[i], 3, 1, 1, 'mul', 'f').squeeze(1) for i in range(B)]
-        
-        x = torch.stack(x, dim=0)
-
-        #x = x.reshape(B, C, H, W)
-        
-        x = self.sg(x)
-        x = x * self.sca(x)
-        x = self.conv3(x)
-
-        x = self.dropout1(x)
-
-        y = inp + x * self.beta
-
-        x = self.conv4(self.norm2(y))
-
-        x = self.sg(x)
-        x = self.conv5(x)
-        x = self.dropout2(x)
-        
-        return y + x * self.gamma
 
 
 class conv(nn.Module):
@@ -570,7 +351,9 @@ class NAFNetBlurCLIP(nn.Module):
         self.load_pretrained_blurclip_parameters()
 
         chan = width
+        self.chan_adaptive = []
         for num in enc_blk_nums:
+            self.chan_adaptive.append(chan)
             self.encoders.append(
                 nn.Sequential(
                     *[NAFBlock(chan) for _ in range(num)]
@@ -603,49 +386,17 @@ class NAFNetBlurCLIP(nn.Module):
         self.padder_size = max(2 ** len(self.encoders), 32)
 
         self.conv_params_dict = OrderedDict()
-        n_params= 0
-        n_params0 = 0
-        n_params1 = 0
-        n_params2 = 0
-        n_params3 = 0
-        #or name.startswith('encoders.2')
-        #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
-        # or name.startswith('encoders.3')
-        #or name.endswith('bias'))
-        for name, param in self.named_parameters(): 
-            if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
-                (name.endswith('weight') or name.endswith('bias'))  and \
-                    name.find('conv')>0 and name.find('b_encoder')<0:
-                dims=[-1]
-                dims.extend(list(param.shape))
-                print(name, param.shape)
-                self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
-                n_params = n_params+param.nelement()
-                
-                if name.startswith('encoders.0'):
-                    n_params0 += param.nelement()
-                if name.startswith('encoders.1'):
-                    n_params1 += param.nelement()
-                if name.startswith('encoders.2'):
-                    n_params2 += param.nelement()
-                if name.startswith('encoders.3'):
-                    n_params3 += param.nelement()
-
-        print(f"##### HYPERNETWORK PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params3)}, {str(n_params)}")
+        
         #import pdb; pdb.set_trace()
         #self.mlp_res_block1 = ResMLPModule(256)
         #self.mlp_res_block2 = ResMLPModule(256)
         
-        #self.fc_hyper1 = nn.Linear(128, 256)
-        #self.fc_hyper2_0 = nn.Linear(256, 512)
-        #self.fc_hyper2_1 = nn.Linear(256, 512)
-        #self.fc_hyper2_2 = nn.Linear(256, 512)
-        #self.fc_hyper3 = nn.Linear(512, 1024)
-        #self.fc_hyper4 = nn.Linear(1024, 2048)
-        #self.fc_hyper3_0 = nn.Linear(512, n_params0)
-        #self.fc_hyper3_1 = nn.Linear(512, n_params1)
-        #self.fc_hyper3_2 = nn.Linear(512, n_params2)
         
+        n_params = 0
+        for chan in self.chan_adaptive:
+            n_params += chan*chan + chan #w.nelements() + b.nelements()
+        print(f"##### HYPERNETWORK PARAMS {n_params}")
+
         self.fc_hyper1 = nn.Linear(128, 256)
         self.fc_hyper2 = nn.Linear(256, 512)
         self.fc_hyper5 = nn.Linear(512, n_params)
@@ -659,39 +410,7 @@ class NAFNetBlurCLIP(nn.Module):
         """
         self.fc_hyper = nn.Linear(128, n_params)
         """
-        # re-build Encoders.
-        self.n_hyper = 3
-        chan = width
-        self.encoders_hyper = nn.ModuleList()
-        for i, num in enumerate(enc_blk_nums):
-            if i < self.n_hyper:
-                #assert num == 1
-                if num > 1:
-                    encoders_hyper_i = nn.ModuleList()
-                    for i_num in range(num):
-                        encoders_hyper_i.append(NAFBlockHyper2(chan))
-                    self.encoders_hyper.append(encoders_hyper_i)
-                else:
-                    self.encoders_hyper.append(
-                        NAFBlockHyper2(chan)
-                    )
-                self.encoders.pop(0)
-            chan = chan * 2
-        """
-        self.decoders_hyper = nn.ModuleList()
-        count = 0
-        for i, num in enumerate(dec_blk_nums):
-            chan = chan //2
-            if i < self.n_hyper:
-                continue
-            else:
-                assert num == 1
-                self.decoders_hyper.append(
-                    NAFBlockHyper(chan)
-                )
-                self.decoders.pop(i-count)
-                count=count+1
-        """
+        
         #for name, param in self.named_parameters(): 
             #if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
             #    (name.endswith('weight') or name.endswith('bias')) and \
@@ -730,6 +449,35 @@ class NAFNetBlurCLIP(nn.Module):
         import pdb; pdb.set_trace()
         """
 
+    def conv1x1_pixelwise(self, x, weights_and_biases):
+        w = weights_and_biases['weight']
+        b = weights_and_biases['bias']
+
+        identity = x
+
+        B, _, H, W = x.shape
+        _, Co, Ci, wH, wW = w.shape
+        #print(x.shape, w.shape)
+        w = Rearrange('b co ci h w -> b (co ci) h w')(w)
+        w = F.interpolate(w, size=(H, W), mode='bilinear')
+        w = w.reshape(B, Co, Ci, H, W)
+        w = Rearrange('b co ci h w -> b h w co ci')(w)#.reshape(B*H*W, Co, Ci)
+
+        b = F.interpolate(b, size=(H, W), mode='bilinear')
+        b = Rearrange('b co h w -> b h w co')(b)
+
+        x = Rearrange('b c h w -> b h w c')(x).unsqueeze(-1)#.reshape(B*H*W, Ci)
+
+        x = torch.matmul(w, x)
+        x = x.squeeze(-1)
+        x = x + b
+        x = Rearrange('b h w c -> b c h w')(x)
+
+        x = x+identity
+        x = F.gelu(x)
+
+        return x
+
     def forward(self, inp):
         B, C, H, W = inp.shape
         inp = self.check_image_size(inp)
@@ -746,72 +494,28 @@ class NAFNetBlurCLIP(nn.Module):
         #x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
         x_hyper = self.fc_hyper5(x_hyper)
-        """
-        x_hyper = self.fc_hyper(embedding)
-        """
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
 
-        #x_hyper = F.interpolate(x_hyper, scale_factor=32, mode='bilinear')
-
-        """
-        x_hyper = self.mlp_res_block1(x_hyper)
-        x_hyper = self.mlp_res_block2(x_hyper)
-        
-        x_hyper_0 = F.gelu(self.fc_hyper2_0(x_hyper))
-        x_hyper_1 = F.gelu(self.fc_hyper2_1(x_hyper))
-        x_hyper_2 = F.gelu(self.fc_hyper2_2(x_hyper))
-
-        x_hyper_0 = self.fc_hyper3_0(x_hyper_0)
-        x_hyper_1 = self.fc_hyper3_1(x_hyper_1)
-        x_hyper_2 = self.fc_hyper3_2(x_hyper_2)
-        
-        x_hyper = torch.cat([x_hyper_0, x_hyper_1, x_hyper_2], dim=-1)
-        """
 
         weights_and_biases = self.parse_weights_and_biases(x_hyper)
 
         encs = []
-        for i, down in enumerate(self.downs):
-            if i<self.n_hyper:
-                
-                if isinstance(self.encoders_hyper[i], nn.ModuleList):
-                    for j, encoder_hyper_i in enumerate(self.encoders_hyper[i]):
-                        x = encoder_hyper_i(x, weights_and_biases[i][j])
-                else:
-                    x = self.encoders_hyper[i](x, weights_and_biases[i][0])
-            else:
-                x = self.encoders[i-self.n_hyper](x)
-            encs.append(x)
-            x = down(x)    
-
-        """
+        count = 0
         for encoder, down in zip(self.encoders, self.downs):
+            x = self.conv1x1_pixelwise(x, weights_and_biases[count])
+            
             x = encoder(x)
             encs.append(x)
             x = down(x)
-        """
+            count+=1
+
         x = self.middle_blks(x)
         
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
-        """
-        #for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
-        encs_reverse = encs[::-1]
-        count=0
-        for i, up in enumerate(self.ups):
-            x = up(x)
-            x = x + encs_reverse[i]
-            if i<self.n_hyper:
-                #print(f'default {i}')
-                x = self.decoders[i](x)
-            else:
-                #print(f'hyper {i-self.n_hyper}')
-                
-                x = self.decoders_hyper[i-self.n_hyper](x, weights_and_biases[self.n_hyper+count])
-                count+=1
-        """
+
         x = self.ending(x)
         x = x + inp
 
@@ -819,25 +523,15 @@ class NAFNetBlurCLIP(nn.Module):
     
     def parse_weights_and_biases(self, x):
         B, _, H, W = x.shape
-        weights_and_biases = [{} for _ in range(self.n_hyper)]
+        weights_and_biases = [{} for _ in range(len(self.chan_adaptive))]
         start = 0
-        for k, v in self.conv_params_dict.items():
-            _, i_block, i_layer, name_conv, name_param = k.split('.')
-            n = v['n_elements']
-            #in_plane, out_plane, kH, kW = v['shape']
-            #print(k)
-            end = start + n
         
-            if int(i_layer) not in weights_and_biases[int(i_block)]:
-                weights_and_biases[int(i_block)][int(i_layer)] = {}
-
-            if name_conv not in weights_and_biases[int(i_block)][int(i_layer)]:
-                weights_and_biases[int(i_block)][int(i_layer)][name_conv] = {'weight': None, 'bias': None}
-
-            shape = v['shape'] + [H, W]
-            weights_and_biases[int(i_block)][int(i_layer)][name_conv][name_param] = x[:, start:end].reshape(shape)
-            
-            start=end
+        for i, chan in enumerate(self.chan_adaptive):
+            weights_and_biases[i] = {
+                'weight': x[:, start:start+chan*chan].reshape(B, chan, chan, H, W),
+                'bias': x[:, start+chan*chan:start+chan*chan+chan].reshape(B, chan, H, W)
+            }
+            start = start+chan*chan+chan
 
         return weights_and_biases
 
