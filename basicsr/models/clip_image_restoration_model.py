@@ -407,12 +407,12 @@ class CLIPImageRestorationModel(BaseModel):
 
             self.feed_data(val_data, is_val=True)
             if self.opt['val'].get('grids', False):
-                self.grids_overlap()
+                self.grids()
 
             self.test()
 
             if self.opt['val'].get('grids', False):
-                self.grids_inverse_overlap()
+                self.grids_inverse()
 
             visuals = self.get_current_visuals()
             sr_img = tensor2img([visuals['result']], rgb2bgr=rgb2bgr)

@@ -248,11 +248,13 @@ class NAFBlockDDF(nn.Module):
         w2 = F.interpolate(w2, size=(H, W), mode='bilinear')
         w2 = w2.reshape(B, C, kH*kW, H, W)
         w2 = w2.contiguous()
+
+        #x = ddf(x, torch.ones((B, C, kH, kW) , device=torch.device('cuda')), w2, 3, 1, 1, 'mul', 'f')
         #x = Rearrange('b c h w -> (b c) h w')(x).unsqueeze(1)
         #print(w2.shape, x.shape)
         
         #x = ddf(x, torch.ones((B*C, 1, kH, kW) ,device=torch.device('cuda')), w2, 3)
-        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w2[i], 3).squeeze(1) for i in range(B)]
+        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w2[i], 3, 1, 1, 'mul', 'f').squeeze(1) for i in range(B)]
         #x0 = ddf(x[0].unsqueeze(1), torch.ones((C, 1, kH, kW), device=torch.device('cuda')), w2[0], 3)
         #x1 = ddf(x[1].unsqueeze(1), torch.ones((C, 1, kH, kW), device=torch.device('cuda')), w2[1], 3).squeeze(1)
         x = torch.stack(x, dim=0)
