@@ -195,6 +195,149 @@ class NAFBlockHyper(nn.Module):
         
         return y + x * self.gamma
 
+class NAFBlockHyper2(nn.Module):
+    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
+        super().__init__()
+
+        dw_channel = c * DW_Expand
+        self.dw_channel = dw_channel
+        self.c = c
+        #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
+        #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        
+        """
+        self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
+        self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
+        
+        self.w2 = nn.Parameter(torch.randn(dw_channel, 1, 3, 3), requires_grad=True)
+        self.b2 = nn.Parameter(torch.zeros(dw_channel))
+        nn.init.kaiming_uniform_(self.w2, mode='fan_in', nonlinearity='relu')
+        
+
+        self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
+        self.b3 = nn.Parameter(torch.zeros(c))
+        nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
+        
+
+        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
+        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
+        
+        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
+        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
+        """
+        # Simplified Channel Attention
+        self.sca = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
+                      groups=1, bias=True),
+        )
+
+        # SimpleGate
+        self.sg = SimpleGate()
+
+        ffn_channel = FFN_Expand * c
+        #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+
+
+        self.norm1 = LayerNorm2d(c)
+        self.norm2 = LayerNorm2d(c)
+
+        self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+        self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+
+        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def conv1_pixelwise(self, x, w, b):
+        B, _, H, W = x.shape
+        _, Co, Ci, kH, kW, wH, wW = w.shape
+
+        w = Rearrange('b co ci kh kw h w -> b (co ci kh kw) h w')(w)
+        w = F.interpolate(w, size=(H, W), mode='bilinear')
+        w = w.reshape(B, Co, Ci, H, W)
+        w = Rearrange('b co ci h w -> b h w co ci')(w).reshape(B*H*W, Co, Ci)
+
+        b = F.interpolate(b, size=(H, W), mode='bilinear')
+        b = Rearrange('b co h w -> b h w co')(b)
+
+        x = Rearrange('b c h w -> b h w c')(x).reshape(B*H*W, Ci).unsqueeze(-1)
+
+        x = torch.bmm(w, x).reshape(B, H, W, Co) + b
+        x = Rearrange('b h w c -> b c h w')(x)
+        return x
+
+    def convd_pixelwise(self, x, w, b):
+        w = w.squeeze(2)
+        B, _, H, W = x.shape
+        _, C, kH, kW, wH, wW = w.shape
+        
+        w = Rearrange('b c kh kw h w -> (b c) (kh kw) h w')(w)
+        w = F.interpolate(w, size=(H, W), mode='bilinear')
+        w = w.reshape(B, C, kH*kW, H, W)
+        
+        w = w.contiguous()
+        x = x.contiguous()
+        b = F.interpolate(b, size=(H, W), mode='bilinear')
+        #b = Rearrange('b co h w -> b h w co')(b)
+        
+        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w[i], 3, 1, 1, 'mul', 'f').squeeze(1) for i in range(B)]
+        x = torch.stack(x, dim=0)
+
+        x = x + b
+
+        return x
+
+    def forward(self, inp, weights_and_bias):
+        x = inp
+        B, _, H, W = x.shape
+        x = self.norm1(x)
+
+        w1 = weights_and_bias['conv1']['weight']
+        b1 = weights_and_bias['conv1']['bias']
+        
+        x = self.conv1_pixelwise(x, w1, b1)
+
+        w2 = weights_and_bias['conv2']['weight']
+        b2 = weights_and_bias['conv2']['bias']
+        
+        
+        x = self.convd_pixelwise(x, w2, b2)
+
+        
+        x = self.sg(x)
+        x = x * self.sca(x)
+        
+        w3 = weights_and_bias['conv3']['weight']
+        b3 = weights_and_bias['conv3']['bias']
+        x = self.conv1_pixelwise(x, w3, b3)
+        
+        x = self.dropout1(x)
+
+        y = inp + x * self.beta
+
+        x = self.norm2(y)
+
+        w4 = weights_and_bias['conv4']['weight']
+        b4 = weights_and_bias['conv4']['bias']
+        x = self.conv1_pixelwise(x, w4, b4)
+
+        x = self.sg(x)
+
+        w5 = weights_and_bias['conv5']['weight']
+        b5 = weights_and_bias['conv5']['bias']
+        #x = [F.conv2d(x[i:i+1], self.w5+w5[i], self.b5+b5[i], padding=0) for i in range(B)]
+        x = self.conv1_pixelwise(x, w5, b5)
+
+        x = self.dropout2(x)
+        
+        return y + x * self.gamma
+
+
 class NAFBlockDDF(nn.Module):
     def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
         super().__init__()
@@ -249,14 +392,8 @@ class NAFBlockDDF(nn.Module):
         w2 = w2.reshape(B, C, kH*kW, H, W)
         w2 = w2.contiguous()
 
-        #x = ddf(x, torch.ones((B, C, kH, kW) , device=torch.device('cuda')), w2, 3, 1, 1, 'mul', 'f')
-        #x = Rearrange('b c h w -> (b c) h w')(x).unsqueeze(1)
-        #print(w2.shape, x.shape)
-        
-        #x = ddf(x, torch.ones((B*C, 1, kH, kW) ,device=torch.device('cuda')), w2, 3)
         x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w2[i], 3, 1, 1, 'mul', 'f').squeeze(1) for i in range(B)]
-        #x0 = ddf(x[0].unsqueeze(1), torch.ones((C, 1, kH, kW), device=torch.device('cuda')), w2[0], 3)
-        #x1 = ddf(x[1].unsqueeze(1), torch.ones((C, 1, kH, kW), device=torch.device('cuda')), w2[1], 3).squeeze(1)
+        
         x = torch.stack(x, dim=0)
 
         #x = x.reshape(B, C, H, W)
@@ -473,15 +610,15 @@ class NAFNetBlurCLIP(nn.Module):
         n_params3 = 0
         #or name.startswith('encoders.2')
         #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
-        #  
+        # or name.startswith('encoders.3')
         #or name.endswith('bias'))
         for name, param in self.named_parameters(): 
-            if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2') or name.startswith('encoders.3')) and \
-                (name.endswith('weight'))  and \
-                    name.find('conv2')>0 and name.find('b_encoder')<0:
+            if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
+                (name.endswith('weight') or name.endswith('bias'))  and \
+                    name.find('conv')>0 and name.find('b_encoder')<0:
                 dims=[-1]
                 dims.extend(list(param.shape))
-                #print(name, param.shape)
+                print(name, param.shape)
                 self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
                 n_params = n_params+param.nelement()
                 
@@ -523,7 +660,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.fc_hyper = nn.Linear(128, n_params)
         """
         # re-build Encoders.
-        self.n_hyper = 4
+        self.n_hyper = 3
         chan = width
         self.encoders_hyper = nn.ModuleList()
         for i, num in enumerate(enc_blk_nums):
@@ -532,11 +669,11 @@ class NAFNetBlurCLIP(nn.Module):
                 if num > 1:
                     encoders_hyper_i = nn.ModuleList()
                     for i_num in range(num):
-                        encoders_hyper_i.append(NAFBlockDDF(chan))
+                        encoders_hyper_i.append(NAFBlockHyper2(chan))
                     self.encoders_hyper.append(encoders_hyper_i)
                 else:
                     self.encoders_hyper.append(
-                        NAFBlockDDF(chan)
+                        NAFBlockHyper2(chan)
                     )
                 self.encoders.pop(0)
             chan = chan * 2
@@ -613,6 +750,7 @@ class NAFNetBlurCLIP(nn.Module):
         x_hyper = self.fc_hyper(embedding)
         """
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
+
         #x_hyper = F.interpolate(x_hyper, scale_factor=32, mode='bilinear')
 
         """
@@ -687,8 +825,10 @@ class NAFNetBlurCLIP(nn.Module):
             _, i_block, i_layer, name_conv, name_param = k.split('.')
             n = v['n_elements']
             #in_plane, out_plane, kH, kW = v['shape']
+            #print(k)
             end = start + n
-            if i_layer not in weights_and_biases[int(i_block)]:
+        
+            if int(i_layer) not in weights_and_biases[int(i_block)]:
                 weights_and_biases[int(i_block)][int(i_layer)] = {}
 
             if name_conv not in weights_and_biases[int(i_block)][int(i_layer)]:
