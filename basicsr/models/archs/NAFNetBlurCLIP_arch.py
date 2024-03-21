@@ -19,6 +19,7 @@ import torch.nn.functional as F
 from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
 from basicsr.models.archs.KernelNet_arch import BlurEncoder, Bottleneck
+from einops.layers.torch import Rearrange
 
 class SimpleGate(nn.Module):
     def forward(self, x):
@@ -89,6 +90,7 @@ class NAFBlockHyper(nn.Module):
         #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
         #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        """
         self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
         self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
         nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
@@ -102,7 +104,14 @@ class NAFBlockHyper(nn.Module):
         self.b3 = nn.Parameter(torch.zeros(c))
         nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
         
-
+        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
+        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
+        
+        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
+        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
+        """
         # Simplified Channel Attention
         self.sca = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
@@ -116,14 +125,6 @@ class NAFBlockHyper(nn.Module):
         ffn_channel = FFN_Expand * c
         #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-
-        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
-        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
-        
-        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
-        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
 
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
@@ -320,7 +321,7 @@ class ResMLPModule(nn.Module):
 
 class NAFNetBlurCLIP(nn.Module):
 
-    def __init__(self, pretrained_clip_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
+    def __init__(self, pretrained_clip_dir, crop_size, stride_crop, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
         super().__init__()
 
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -335,7 +336,10 @@ class NAFNetBlurCLIP(nn.Module):
         self.downs = nn.ModuleList()
 
         self.pretrained_clip_dir = pretrained_clip_dir
-        self.b_encoder = BlurEncoderDecoder(layers=[3,4,6,3], output_dim=128, width=64)
+        self.crop_size = crop_size
+        self.stride_crop = stride_crop
+        #self.b_encoder = BlurEncoderDecoder(layers=[3,4,6,3], output_dim=128, width=64)
+        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
         self.load_pretrained_blurclip_parameters()
 
         chan = width
@@ -397,8 +401,8 @@ class NAFNetBlurCLIP(nn.Module):
 
         print(f"##### HYPERNETWORK PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params)}")
         
-        self.mlp_res_block1 = ResMLPModule(256)
-        self.mlp_res_block2 = ResMLPModule(256)
+        #self.mlp_res_block1 = ResMLPModule(256)
+        #self.mlp_res_block2 = ResMLPModule(256)
         
         #self.fc_hyper1 = nn.Linear(128, 256)
         #self.fc_hyper2_0 = nn.Linear(256, 512)
@@ -487,15 +491,73 @@ class NAFNetBlurCLIP(nn.Module):
         import pdb; pdb.set_trace()
         """
 
+    #def feature_fusion(self, x):
+    def grids(self, x):
+        crop_size = self.crop_size
+        stride_crop = self.stride_crop
+
+        B, C, H, W, = x.shape
+
+        n_H = (H - crop_size)//stride_crop + 1
+        n_W = (W - crop_size)//stride_crop + 1
+        
+        
+        x = F.unfold(x, kernel_size=(crop_size, crop_size), padding=(0, 0), stride=(stride_crop, stride_crop))
+        x = Rearrange('b (c ph pw) (oh ow) -> (b oh ow) c ph pw', c=C, ph=crop_size, pw=crop_size, oh=n_H, ow=n_W)(x)
+        
+        # debug
+        """
+        x_identity = x
+        y = Rearrange('(b oh ow) c ph pw -> b (c ph pw) (oh ow)', c=C, ph=crop_size, pw=crop_size, oh=n_H, ow=n_W)(x)
+        counts = torch.ones_like(y)
+
+        y = F.fold(y, output_size=(H, W) , kernel_size=(crop_size, crop_size), padding=(0, 0), stride=(stride_crop, stride_crop))
+        counts = F.fold(counts, output_size=(H, W) , kernel_size=(crop_size, crop_size), padding=(0, 0), stride=(stride_crop, stride_crop))
+
+        y = y / counts
+        import pdb; pdb.set_trace()
+        """
+
+        return x, [n_H, n_W]
+
+    def grids_inverse(self, x, n_crops, level):
+        crop_size = self.crop_size // (2**level)
+        stride_crop = self.stride_crop // (2**level)
+        
+        n_H, n_W = n_crops
+        B_total, C, H, W = x.shape
+
+        out_H = H + 2 * stride_crop
+        out_W = W + 2 * stride_crop
+
+        B = B_total//(n_H*n_W)
+        print(x.shape, crop_size, stride_crop, out_H, out_W, n_H, n_W)
+        x = Rearrange('(b oh ow) c ph pw -> b (c ph pw) (oh ow)', c=C, ph=crop_size, pw=crop_size, oh=n_H, ow=n_W)(x)
+
+        counts = torch.ones_like(x)
+        
+        x = F.fold(x, output_size=(out_H, out_W) , kernel_size=(crop_size, crop_size), padding=(0, 0), stride=(stride_crop, stride_crop))
+        counts = F.fold(counts, output_size=(out_H, out_W) , kernel_size=(crop_size, crop_size), padding=(0, 0), stride=(stride_crop, stride_crop))
+
+        x = x / counts
+        
+        return x
+
+
     def forward(self, inp):
         B, C, H, W = inp.shape
+        
+        inp_identity = inp
         inp = self.check_image_size(inp)
+        inp, n_crops = self.grids(inp)
 
         x = self.intro(inp)
 
         self.b_encoder.eval()
+
         embedding = self.b_encoder(inp)
-        
+        embedding = embedding / embedding.norm(dim=1, keepdim=True)
+
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         #x_hyper = self.mlp_res_block1(x_hyper)
         #x_hyper = self.mlp_res_block2(x_hyper)
@@ -520,13 +582,22 @@ class NAFNetBlurCLIP(nn.Module):
 
         encs = []
         for i, down in enumerate(self.downs):
+            #print(i, x.shape)
             if i<self.n_hyper:
                 x = self.encoders_hyper[i](x, weights_and_biases[i])
+                x_shortcut = self.grids_inverse(x, n_crops, i)
+
+                encs.append(x_shortcut)
+                
+                if i == self.n_hyper-1:
+                    x = x_shortcut
+                x = down(x)    
+                #print(i, x_shortcut.shape)
             else:
                 x = self.encoders[i-self.n_hyper](x)
-            encs.append(x)
-            x = down(x)    
-
+                encs.append(x)
+                x = down(x)    
+            
         """
         for encoder, down in zip(self.encoders, self.downs):
             x = encoder(x)
@@ -556,7 +627,8 @@ class NAFNetBlurCLIP(nn.Module):
                 count+=1
         """
         x = self.ending(x)
-        x = x + inp
+
+        x = x + inp_identity
 
         return x[:, :, :H, :W]
     
@@ -592,9 +664,9 @@ class NAFNetBlurCLIPLocal(Local_Base, NAFNetBlurCLIP):
         N, C, H, W = train_size
         base_size = (int(H * 1.5), int(W * 1.5))
 
-        self.eval()
-        with torch.no_grad():
-            self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
+        #self.eval()
+        #with torch.no_grad():
+        #    self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
 
 
 if __name__ == '__main__':

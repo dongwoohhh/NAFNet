@@ -377,12 +377,14 @@ class CLIPImageRestorationModel(BaseModel):
         self.output = (preds / count_mt).to(self.device)
         #self.output = preds.to(self.device)
         self.lq = self.origin_lq
+
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
 
         if self.opt['train'].get('mixup', False):
             self.mixup_aug()
 
+        stride_crop = self.opt['network_g']['stride_crop']
         preds = self.net_g(self.lq)
         if not isinstance(preds, list):
             preds = [preds]
@@ -395,7 +397,7 @@ class CLIPImageRestorationModel(BaseModel):
         if self.cri_pix:
             l_pix = 0.
             for pred in preds:
-                l_pix += self.cri_pix(pred, self.gt)
+                l_pix += self.cri_pix(pred[..., stride_crop:-stride_crop, stride_crop:-stride_crop], self.gt[..., stride_crop:-stride_crop, stride_crop:-stride_crop])
 
             # print('l pix ... ', l_pix)
             l_total += l_pix
@@ -420,7 +422,6 @@ class CLIPImageRestorationModel(BaseModel):
         if use_grad_clip:
             torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
         self.optimizer_g.step()
-
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
 

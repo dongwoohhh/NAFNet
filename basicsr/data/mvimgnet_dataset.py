@@ -118,6 +118,9 @@ class MVImgNetDataset(data.Dataset):
         # augmentation for training
         if self.opt['phase'] == 'train':
             gt_size = self.opt['gt_size']
+            stride_overlap = self.opt['stride_crop']
+
+            gt_size = gt_size + 2*stride_overlap
             # padding
             img_gt, img_lq = padding(img_gt, img_lq, gt_size)
             

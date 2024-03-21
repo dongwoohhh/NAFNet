@@ -654,7 +654,7 @@ class BlurEncoder(nn.Module):
     - The final pooling layer is a QKV attention instead of an average pool
     """
 
-    def __init__(self, layers, output_dim, width=64, input_resolution=256, heads=4):
+    def __init__(self, layers, output_dim, width=64, input_resolution=256):
         super().__init__()
         self.output_dim = output_dim
         #self.input_resolution = input_resolution
