@@ -204,8 +204,10 @@ class CLIPImageRestorationModel(BaseModel):
         step_j = step_j//scale*scale
         """
         scale = self.scale
-        step_j = crop_size_h // 2
-        step_i = crop_size_w // 2
+        stride_scale = int(self.opt['val'].get('stride_scale'))
+        
+        step_j = crop_size_h // stride_scale
+        step_i = crop_size_w // stride_scale
         
         parts = []
         idxes = []
@@ -233,7 +235,7 @@ class CLIPImageRestorationModel(BaseModel):
         self.lq = torch.cat(parts, dim=0)
         self.idxes = idxes
 
-
+        
 
     def grids_inverse(self):
         preds = torch.zeros(self.original_size)
@@ -277,15 +279,17 @@ class CLIPImageRestorationModel(BaseModel):
             crop_size_w = int(self.opt['val'].get('crop_size_w_ratio') * w)
 
         crop_size_h, crop_size_w = crop_size_h // self.scale * self.scale, crop_size_w // self.scale * self.scale
-        half_size_h = crop_size_h //2
-        half_size_w = crop_size_w //2
+        
+        stride_scale = int(self.opt['val'].get('stride_scale'))
+        half_size_h = crop_size_h // stride_scale
+        half_size_w = crop_size_w // stride_scale
         
         #import pdb; pdb.set_trace()
         for cnt, each_idx in enumerate(self.idxes):
             i = each_idx['i']
             j = each_idx['j']
             #print(i, j, i, i + crop_size_h, j, j + crop_size_w)
-    
+        
             if i==0 and j==0:
                 preds[0, :, 0:half_size_h+half_size_h//2, 0:half_size_w+half_size_w//2] = self.output[cnt, :, 0:half_size_h+half_size_h//2, 0:half_size_w+half_size_w//2]
             elif i+crop_size_h >= h and j+crop_size_w >= w:
@@ -316,7 +320,63 @@ class CLIPImageRestorationModel(BaseModel):
         #self.output = (preds / count_mt).to(self.device)
         self.output = preds.to(self.device)
         self.lq = self.origin_lq
+    def grids_inverse_overlap_avg(self):
+        preds = torch.zeros(self.original_size)
+        b, c, h, w = self.original_size
 
+        count_mt = torch.zeros((b, 1, h, w))
+        if 'crop_size_h' in self.opt['val']:
+            crop_size_h = self.opt['val']['crop_size_h']
+        else:
+            crop_size_h = int(self.opt['val'].get('crop_size_h_ratio') * h)
+
+        if 'crop_size_w' in self.opt['val']:
+            crop_size_w = self.opt['val'].get('crop_size_w')
+        else:
+            crop_size_w = int(self.opt['val'].get('crop_size_w_ratio') * w)
+
+        crop_size_h, crop_size_w = crop_size_h // self.scale * self.scale, crop_size_w // self.scale * self.scale
+        
+        stride_scale = int(self.opt['val'].get('stride_scale'))
+        half_size_h = crop_size_h // stride_scale
+        half_size_w = crop_size_w // stride_scale
+        
+        #import pdb; pdb.set_trace()
+        for cnt, each_idx in enumerate(self.idxes):
+            i = each_idx['i']
+            j = each_idx['j']
+            #print(i, j, i, i + crop_size_h, j, j + crop_size_w)
+            """
+            if i==0 and j==0:
+                preds[0, :, 0:half_size_h+half_size_h//2, 0:half_size_w+half_size_w//2] = self.output[cnt, :, 0:half_size_h+half_size_h//2, 0:half_size_w+half_size_w//2]
+            elif i+crop_size_h >= h and j+crop_size_w >= w:
+
+                preds[0, :, i+half_size_h//2:, j+half_size_w//2:] = self.output[cnt, :,  half_size_h//2:, half_size_w//2:]
+            elif i==0:
+                if j+crop_size_w >= w:
+                    preds[0, :, 0:half_size_h+half_size_h//2, j+half_size_w//2:] = self.output[cnt, :, 0:half_size_h+half_size_h//2, half_size_w//2:]    
+                else: 
+                    preds[0, :, 0:half_size_h+half_size_h//2, j+half_size_w//2:j+half_size_w//2+half_size_w] = self.output[cnt, :, 0:half_size_h+half_size_h//2, half_size_w//2:half_size_w//2+half_size_w]
+            elif j==0:
+                if i+crop_size_h >= h:
+                    preds[0, :, i+half_size_h//2:, 0:half_size_w+half_size_w//2] = self.output[cnt, :, half_size_h//2:, 0:half_size_w//2+half_size_w] 
+                else:
+                    preds[0, :, i+half_size_h//2:i+half_size_h//2+half_size_h, 0:half_size_w+half_size_w//2] = self.output[cnt, :, half_size_h//2:half_size_h//2+half_size_h, 0:half_size_w+half_size_w//2]
+            elif j+crop_size_w >= w:
+                preds[0, :, i+half_size_h//2:i+half_size_h//2+half_size_h, j+half_size_w//2:] = self.output[cnt, :, half_size_h//2:half_size_h//2+half_size_h, half_size_w//2:]
+            elif i+crop_size_h >= h:
+                preds[0, :, i+half_size_h//2:, j+half_size_w//2:j+half_size_w//2+half_size_w] = self.output[cnt, :, half_size_h//2:, half_size_w//2:half_size_w//2+half_size_w] 
+            else:
+                preds[0, :, i+half_size_h//2:i+half_size_h//2+half_size_h, j+half_size_w//2:j+half_size_w//2+half_size_w] = self.output[cnt, :, half_size_h//2:half_size_h//2+half_size_h, half_size_w//2:half_size_w//2+half_size_w] 
+            """ 
+
+            
+            preds[0, :, i: i + crop_size_h, j: j + crop_size_w] += self.output[cnt]
+            count_mt[0, 0, i: i + crop_size_h, j: j + crop_size_w] += 1.
+
+        self.output = (preds / count_mt).to(self.device)
+        #self.output = preds.to(self.device)
+        self.lq = self.origin_lq
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
 
@@ -412,7 +472,7 @@ class CLIPImageRestorationModel(BaseModel):
             self.test()
 
             if self.opt['val'].get('grids', False):
-                self.grids_inverse_overlap()
+                self.grids_inverse_overlap_avg()
 
             visuals = self.get_current_visuals()
             sr_img = tensor2img([visuals['result']], rgb2bgr=rgb2bgr)
