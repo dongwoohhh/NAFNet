@@ -527,11 +527,12 @@ class NAFNetBlurCLIP(nn.Module):
         n_H, n_W = n_crops
         B_total, C, H, W = x.shape
 
-        out_H = H + 2 * stride_crop
-        out_W = W + 2 * stride_crop
+        #out_H = H + 2 * stride_crop
+        #out_W = W + 2 * stride_crop
+        out_H = (n_H - 1)* stride_crop + crop_size
+        out_W = (n_W - 1)* stride_crop + crop_size
 
         B = B_total//(n_H*n_W)
-        print(x.shape, crop_size, stride_crop, out_H, out_W, n_H, n_W)
         x = Rearrange('(b oh ow) c ph pw -> b (c ph pw) (oh ow)', c=C, ph=crop_size, pw=crop_size, oh=n_H, ow=n_W)(x)
 
         counts = torch.ones_like(x)
@@ -546,9 +547,8 @@ class NAFNetBlurCLIP(nn.Module):
 
     def forward(self, inp):
         B, C, H, W = inp.shape
-        
-        inp_identity = inp
         inp = self.check_image_size(inp)
+        inp_identity = inp
         inp, n_crops = self.grids(inp)
 
         x = self.intro(inp)
