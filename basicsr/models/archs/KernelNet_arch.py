@@ -569,7 +569,7 @@ class KernelMLPMixerEncoder(nn.Module):
     - The final pooling layer is a QKV attention instead of an average pool
     """
 
-    def __init__(self, kernel_size, output_dim, token_dim, channel_dim, depth, input_resolution=32, heads=4):
+    def __init__(self, kernel_size, output_dim, token_dim, channel_dim, depth, input_resolution=8, heads=4):
         super().__init__()
         
         self.embed_fn, self.input_dim = get_embedder(multires=10)
@@ -600,7 +600,7 @@ class KernelMLPMixerEncoder(nn.Module):
         x = x.mean(-2)#.mean(-2).mean(-2)
         x = Rearrange('b h w c -> b c h w')(x)
         #x = self.mlp_out(x)
-        
+
         x = self.attnpool(x)
         return x
 
@@ -681,7 +681,8 @@ class BlurEncoder(nn.Module):
         self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
         #embed_dim = width * 32  # the ResNet feature dimension
         #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
-        self.attnpool = None
+        self.attnpool = AttentionPool2d(input_resolution // 32, output_dim, heads, output_dim)
+        #self.attnpool = None
 
 
     def _make_layer(self, planes, blocks, stride=1):
@@ -709,15 +710,15 @@ class BlurEncoder(nn.Module):
         x = self.layer4(x)
 
         x = self.conv_out(x)
-        x = x.mean(-1).mean(-1)
-    
-        #x = self.attnpool(x)
+        #x = x.mean(-1).mean(-1)
+        x = self.attnpool(x)
         
         return x
 
 class BlurCLIP(nn.Module):
     def __init__(self,
                  kernel_size=61,
+                 vision_layers=[],
                  #vision_layers: Union[Tuple[int, int, int, int], int],
                  #vision_width: int,
                  #vision_patch_size: int,
@@ -726,7 +727,7 @@ class BlurCLIP(nn.Module):
         
         self.k_encoder = KernelMLPMixerEncoder(kernel_size=61, output_dim=128, token_dim=128, channel_dim=128, depth=2)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
-        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
+        self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=128, width=64)
         
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.14))
         self.initialize_parameters()

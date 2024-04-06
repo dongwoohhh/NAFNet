@@ -335,7 +335,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.downs = nn.ModuleList()
 
         self.pretrained_clip_dir = pretrained_clip_dir
-        self.b_encoder = BlurEncoderDecoder(layers=[3,4,6,3], output_dim=128, width=64)
+        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
         self.load_pretrained_blurclip_parameters()
 
         chan = width
@@ -495,6 +495,7 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.b_encoder.eval()
         embedding = self.b_encoder(inp)
+        embedding = embedding / embedding.norm(dim=1, keepdim=True)
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         #x_hyper = self.mlp_res_block1(x_hyper)

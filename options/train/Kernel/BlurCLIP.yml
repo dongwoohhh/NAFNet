@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_v6
+name: BlurCLIP_v1_new
 model_type: CLIPModel
 scale: 1
 
@@ -16,9 +16,12 @@ datasets:
   train:
     name: MVImgNet-blur-kernel-train
     type: MVImgNetKernelDataset
-    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/target]
-    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/input_noise]
-    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_train/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_r1K/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_linear/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_linear/kernel]
+    dataroot_gt: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target]
+    dataroot_lq: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input_noise]
+    dataroot_kernel: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel]
+    #dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/target]
+    #dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/input]
+    #dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/kernel]
 
     filename_tmpl: '{}'
     io_backend:
@@ -28,11 +31,11 @@ datasets:
     use_flip: true
     use_rot: true
 
-    scale_kernel: 8
+    scale_kernel: 32
 
     # data loader
     use_shuffle: true
-    num_worker_per_gpu: 8
+    num_worker_per_gpu: 10
     batch_size_per_gpu: 16
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
@@ -40,12 +43,12 @@ datasets:
   val:
     name: MVImgNet-blur-kernel-val
     type: MVImgNetKernelDataset
-    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target]
-    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input_noise]
-    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/kernel]
+    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/target]
+    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/input]
+    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/kernel]
 
     gt_size: 256
-    scale_kernel: 8
+    scale_kernel: 32
     batch_size_per_gpu: 8
 
     filename_tmpl: '{}'
@@ -55,6 +58,7 @@ datasets:
 network_g:
   type: BlurCLIP
   kernel_size: 61
+  vision_layers: [3,4,6,3]
 
 
 # path
