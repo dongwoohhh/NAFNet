@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_v1_new
+name: BlurCLIP_v1_new2
 model_type: CLIPModel
 scale: 1
 
@@ -16,9 +16,9 @@ datasets:
   train:
     name: MVImgNet-blur-kernel-train
     type: MVImgNetKernelDataset
-    dataroot_gt: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target]
-    dataroot_lq: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input_noise]
-    dataroot_kernel: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel]
+    dataroot_gt: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/target]
+    dataroot_lq: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/input_noise]
+    dataroot_kernel: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/kernel]
     #dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/target]
     #dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/input]
     #dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/kernel]
@@ -43,9 +43,9 @@ datasets:
   val:
     name: MVImgNet-blur-kernel-val
     type: MVImgNetKernelDataset
-    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/target]
-    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/input]
-    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/kernel]
+    dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/target]
+    dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/input]
+    dataroot_kernel: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val/kernel]
 
     gt_size: 256
     scale_kernel: 32
@@ -77,7 +77,7 @@ train:
 
   scheduler:
     type: TrueCosineAnnealingLR
-    T_max: 200000
+    T_max: 100000
     eta_min: !!float 1e-7
 
   total_iter: 200000
@@ -109,7 +109,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5e3
+  save_checkpoint_freq: !!float 1e4
   use_tb_logger: true
   wandb:
     project: ~

@@ -170,6 +170,7 @@ class MVImgNetKernelDataset(data.Dataset):
         
         kernel = kernel + 1e-4*torch.randn(kernel.shape)
 
+        H, W, _ = img_lq.shape
         # augmentation for training
         gt_size = self.opt['gt_size']
             # padding
@@ -201,7 +202,6 @@ class MVImgNetKernelDataset(data.Dataset):
         else:
             img_gt_crop = img_gt[H//2-gt_size//2:H//2+gt_size//2, W//2-gt_size//2:W//2+gt_size//2]
             img_lq_crop = img_lq[H//2-gt_size//2:H//2+gt_size//2, W//2-gt_size//2:W//2+gt_size//2]
-            
             
             kernel_crop = kernel[:, :, (H//2-gt_size//2)//scale_kernel:(H//2+gt_size//2)//scale_kernel, (W//2-gt_size//2)//scale_kernel:(W//2+gt_size//2)//scale_kernel]
             #print(kernel.shape, kernel_crop.shape)# (H//2-gt_size)//scale_kernel, (H//2+gt_size)//scale_kernel)

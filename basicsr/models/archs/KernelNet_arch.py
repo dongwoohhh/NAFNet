@@ -729,7 +729,7 @@ class BlurCLIP(nn.Module):
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=128, width=64)
         
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.14))
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.initialize_parameters()
         
         #nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
