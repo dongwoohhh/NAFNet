@@ -264,7 +264,7 @@ class CLIPModel(BaseModel):
 
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
-
+        
         logits_per_image, logits_per_kernel = self.net_g(self.lq, self.kernel)
 
 

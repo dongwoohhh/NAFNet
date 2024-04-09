@@ -5,11 +5,11 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_NAFNet_v2_debug
+name: BlurCLIP_NAFNet_v2_decoder_normalize_w
 model_type: CLIPImageRestorationModel
 scale: 1
 
-num_gpu: 8
+num_gpu: 1
 manual_seed: 42
 
 datasets:
@@ -48,7 +48,7 @@ datasets:
 
 network_g:
   type: NAFNetBlurCLIPLocal
-  pretrained_clip_dir: experiments/BlurCLIP_v1/models/net_g_120000.pth
+  pretrained_clip_dir: experiments/BlurCLIP_v1_new2/models/net_g_100000.pth
   width: 32
   enc_blk_nums: [1, 1, 1, 28]
   middle_blk_num: 1

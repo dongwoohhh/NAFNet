@@ -5,7 +5,7 @@
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
 # general settings
-name: BlurCLIP_NAFNet_v1_new
+name: BlurCLIP_NAFNet_v2_decoder_normalize_w
 model_type: CLIPImageRestorationModel
 scale: 1
 
@@ -16,9 +16,9 @@ datasets:
   train:
     name: MVImgNet-blur-train
     type: MVImgNetDataset
-    dataroot_gt: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target]
-    dataroot_lq: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input_noise]
-    
+    dataroot_gt: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n2/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n2/target]
+    dataroot_lq: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n2/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n2/input_noise]
+
     #dataroot_gt: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/target]
     #dataroot_lq: [/mnt/disk4/dongwool/results_nerf/gs-blur/renders_val_2/input]
 
@@ -49,7 +49,7 @@ datasets:
 
 network_g:
   type: NAFNetBlurCLIPLocal
-  pretrained_clip_dir: experiments/BlurCLIP_v1_new/models/net_g_120000.pth
+  pretrained_clip_dir: experiments/BlurCLIP_v1_new2/models/net_g_100000.pth
   width: 32
   enc_blk_nums: [1, 1, 1, 28]
   middle_blk_num: 1
@@ -107,7 +107,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5e3
+  save_checkpoint_freq: !!float 1e4
   use_tb_logger: true
   wandb:
     project: ~

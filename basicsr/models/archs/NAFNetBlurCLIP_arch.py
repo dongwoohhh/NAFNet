@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
 from basicsr.models.archs.KernelNet_arch import BlurEncoder, Bottleneck
-
+from einops.layers.torch import Rearrange
 class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
@@ -89,6 +89,7 @@ class NAFBlockHyper(nn.Module):
         #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
         #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        """
         self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
         self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
         nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
@@ -101,7 +102,15 @@ class NAFBlockHyper(nn.Module):
         self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
         self.b3 = nn.Parameter(torch.zeros(c))
         nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
+
+        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
+        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
         
+        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
+        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
+        """
 
         # Simplified Channel Attention
         self.sca = nn.Sequential(
@@ -117,14 +126,6 @@ class NAFBlockHyper(nn.Module):
         #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
 
-        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
-        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
-        
-        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
-        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
-
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
 
@@ -134,32 +135,40 @@ class NAFBlockHyper(nn.Module):
         self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
+    def normalize_weights(self, w):
+        norm_w = Rearrange('b ci co kh kw -> b ci co (kh kw) 1')(w)
+        norm_w = torch.norm(norm_w, dim=(1, 3), keepdim=True)
+        
+        w = w / norm_w
+
+        return w
+
     def forward(self, inp, weights_and_bias):
         x = inp
         B = x.shape[0]
 
         x = self.norm1(x)
         
-        w1 = weights_and_bias['conv1']['weight']
+        w1 = self.normalize_weights(weights_and_bias['conv1']['weight'])
         b1 = weights_and_bias['conv1']['bias']
         #import pdb; pdb.set_trace()
         #x = [F.conv2d(x[i:i+1], self.w1+w1[i], self.b1+b1[i], padding=0) for i in range(B)]
-        x = [F.conv2d(x[i:i+1], w1[i], b1[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w1[i], b1[i] if b1 is not None else None, padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
         
-        w2 = weights_and_bias['conv2']['weight']
+        w2 = self.normalize_weights(weights_and_bias['conv2']['weight'])
         b2 = weights_and_bias['conv2']['bias']
         #x = [F.conv2d(x[i:i+1], self.w2+w2[i], self.b2+b2[i], padding=1, groups=self.dw_channel) for i in range(B)]
-        x = [F.conv2d(x[i:i+1], w2[i], b2[i], padding=1, groups=self.dw_channel) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w2[i], b2[i] if b1 is not None else None, padding=1, groups=self.dw_channel) for i in range(B)]
         x = torch.cat(x, dim=0)
         
         x = self.sg(x)
         x = x * self.sca(x)
         
-        w3 = weights_and_bias['conv3']['weight']
+        w3 = self.normalize_weights(weights_and_bias['conv3']['weight'])
         b3 = weights_and_bias['conv3']['bias']
         #x = [F.conv2d(x[i:i+1], self.w3+w3[i], self.b3+b3[i], padding=0) for i in range(B)]
-        x = [F.conv2d(x[i:i+1], w3[i], b3[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w3[i], b3[i] if b1 is not None else None, padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
         
 
@@ -169,18 +178,18 @@ class NAFBlockHyper(nn.Module):
 
         x = self.norm2(y)
 
-        w4 = weights_and_bias['conv4']['weight']
+        w4 = self.normalize_weights(weights_and_bias['conv4']['weight'])
         b4 = weights_and_bias['conv4']['bias']
         #x = [F.conv2d(x[i:i+1], self.w4+w4[i], self.b4+b4[i], padding=0) for i in range(B)]
-        x = [F.conv2d(x[i:i+1], w4[i], b4[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w4[i], b4[i] if b1 is not None else None, padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
 
         x = self.sg(x)
 
-        w5 = weights_and_bias['conv5']['weight']
+        w5 = self.normalize_weights(weights_and_bias['conv5']['weight'])
         b5 = weights_and_bias['conv5']['bias']
         #x = [F.conv2d(x[i:i+1], self.w5+w5[i], self.b5+b5[i], padding=0) for i in range(B)]
-        x = [F.conv2d(x[i:i+1], w5[i], b5[i], padding=0) for i in range(B)]
+        x = [F.conv2d(x[i:i+1], w5[i], b5[i] if b1 is not None else None, padding=0) for i in range(B)]
         x = torch.cat(x, dim=0)
 
         x = self.dropout2(x)
@@ -354,7 +363,7 @@ class NAFNetBlurCLIP(nn.Module):
             nn.Sequential(
                 *[NAFBlock(chan) for _ in range(middle_blk_num)]
             )
-
+        chan_middle = chan
         for num in dec_blk_nums:
             self.ups.append(
                 nn.Sequential(
@@ -372,12 +381,14 @@ class NAFNetBlurCLIP(nn.Module):
         self.padder_size = max(2 ** len(self.encoders), 32)
 
         self.conv_params_dict = OrderedDict()
+        """
         n_params= 0
         n_params0 = 0
         n_params1 = 0
         n_params2 = 0
         #or name.startswith('encoders.2')
         #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+        
         for name, param in self.named_parameters(): 
             if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
                 (name.endswith('weight') or name.endswith('bias')) and \
@@ -394,11 +405,38 @@ class NAFNetBlurCLIP(nn.Module):
                     n_params1 += param.nelement()
                 if name.startswith('encoders.2'):
                     n_params2 += param.nelement()
-
         print(f"##### HYPERNETWORK PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params)}")
+        """
+        n_params= 0
+        n_params0 = 0
+        n_params1 = 0
+        n_params2 = 0
+        n_params3 = 0  
+        #name.startswith('decoders.0') or
+        #or name.endswith('bias'))
+        for name, param in self.named_parameters(): 
+            if (name.startswith('decoders.1') or name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+                (name.endswith('weight')) and \
+                    name.find('conv')>0 and name.find('b_encoder')<0:
+                dims=[-1]
+                dims.extend(list(param.shape))
+                #print(name, param.shape)
+                self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
+                n_params = n_params+param.nelement()
+                
+                if name.startswith('decoders.0'):
+                    n_params0 += param.nelement()
+                if name.startswith('decoders.1'):
+                    n_params1 += param.nelement()
+                if name.startswith('decoders.2'):
+                    n_params2 += param.nelement()
+                if name.startswith('decoders.3'):
+                    n_params3 += param.nelement()
+
+        print(f"##### DECODER PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params3)} {str(n_params)}")
         
-        self.mlp_res_block1 = ResMLPModule(256)
-        self.mlp_res_block2 = ResMLPModule(256)
+        #self.mlp_res_block1 = ResMLPModule(256)
+        #self.mlp_res_block2 = ResMLPModule(256)
         
         #self.fc_hyper1 = nn.Linear(128, 256)
         #self.fc_hyper2_0 = nn.Linear(256, 512)
@@ -422,6 +460,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.norm3 = nn.LayerNorm(512)
 
         # re-build Encoders.
+        """
         self.n_hyper = 3
         chan = width
         self.encoders_hyper = nn.ModuleList()
@@ -435,11 +474,14 @@ class NAFNetBlurCLIP(nn.Module):
                 self.encoders.pop(0)
             chan = chan * 2
         """
+        self.n_hyper = 3
+        chan = chan_middle
+
         self.decoders_hyper = nn.ModuleList()
         count = 0
         for i, num in enumerate(dec_blk_nums):
             chan = chan //2
-            if i < self.n_hyper:
+            if i < len(dec_blk_nums) - self.n_hyper:
                 continue
             else:
                 assert num == 1
@@ -448,7 +490,7 @@ class NAFNetBlurCLIP(nn.Module):
                 )
                 self.decoders.pop(i-count)
                 count=count+1
-        """
+
         #for name, param in self.named_parameters(): 
             #if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
             #    (name.endswith('weight') or name.endswith('bias')) and \
@@ -520,6 +562,7 @@ class NAFNetBlurCLIP(nn.Module):
         weights_and_biases = self.parse_weights_and_biases(x_hyper)
 
         encs = []
+        """
         for i, down in enumerate(self.downs):
             if i<self.n_hyper:
                 x = self.encoders_hyper[i](x, weights_and_biases[i])
@@ -527,15 +570,14 @@ class NAFNetBlurCLIP(nn.Module):
                 x = self.encoders[i-self.n_hyper](x)
             encs.append(x)
             x = down(x)    
-
         """
         for encoder, down in zip(self.encoders, self.downs):
             x = encoder(x)
             encs.append(x)
             x = down(x)
-        """
-        x = self.middle_blks(x)
         
+        x = self.middle_blks(x)
+        """
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = up(x)
             x = x + enc_skip
@@ -544,25 +586,26 @@ class NAFNetBlurCLIP(nn.Module):
         #for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
         encs_reverse = encs[::-1]
         count=0
+        n_vanilla = len(self.ups)-self.n_hyper
         for i, up in enumerate(self.ups):
             x = up(x)
             x = x + encs_reverse[i]
-            if i<self.n_hyper:
+            if i<n_vanilla:
                 #print(f'default {i}')
                 x = self.decoders[i](x)
             else:
                 #print(f'hyper {i-self.n_hyper}')
-                
-                x = self.decoders_hyper[i-self.n_hyper](x, weights_and_biases[self.n_hyper+count])
+                x = self.decoders_hyper[count](x, weights_and_biases[n_vanilla+count])
                 count+=1
-        """
+        
         x = self.ending(x)
         x = x + inp
 
         return x[:, :, :H, :W]
     
     def parse_weights_and_biases(self, x):
-        weights_and_biases = [{} for _ in range(self.n_hyper)]
+        weights_and_biases = [{} for _ in range(len(self.encoders))]
+        
         start = 0
         for k, v in self.conv_params_dict.items():
             _, i_block, i_layer, name_conv, name_param = k.split('.')

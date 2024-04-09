@@ -6,6 +6,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from einops.layers.torch import Rearrange
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -436,8 +438,6 @@ def build_model(state_dict: dict):
     return model.eval()
 
 
-from einops.layers.torch import Rearrange
-
 
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
@@ -718,14 +718,14 @@ class BlurEncoder(nn.Module):
 class BlurCLIP(nn.Module):
     def __init__(self,
                  kernel_size=61,
-                 vision_layers=[],
+                 vision_layers=[3,4,6,3],
                  #vision_layers: Union[Tuple[int, int, int, int], int],
                  #vision_width: int,
                  #vision_patch_size: int,
                  ):
         super().__init__()
-        
-        self.k_encoder = KernelMLPMixerEncoder(kernel_size=61, output_dim=128, token_dim=128, channel_dim=128, depth=2)
+
+        self.k_encoder = KernelMLPMixerEncoder(kernel_size=kernel_size, output_dim=128, token_dim=128, channel_dim=128, depth=2)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=128, width=64)
         
