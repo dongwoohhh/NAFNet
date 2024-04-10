@@ -583,7 +583,7 @@ class KernelMLPMixerEncoder(nn.Module):
 
         #self.attnpool = AttentionPool2d(input_resolution, token_dim, heads, output_dim)
 
-        #self.mlp_out = nn.Linear(token_dim, output_dim)
+        self.mlp_out = nn.Linear(token_dim, output_dim)
     def forward(self, x):
         B, H, W, K, _ = x.shape
         x = self.embed_fn(x)
@@ -598,8 +598,10 @@ class KernelMLPMixerEncoder(nn.Module):
 
         x = x.reshape(B, H, W, K, -1)
         x = x.mean(-2)#.mean(-2).mean(-2)
+        x = self.mlp_out(x)
+        
         x = Rearrange('b h w c -> b c h w')(x)
-        #x = self.mlp_out(x)
+        
 
         #x = self.attnpool(x)
         return x
