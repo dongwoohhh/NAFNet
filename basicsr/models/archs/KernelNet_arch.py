@@ -581,7 +581,7 @@ class KernelMLPMixerEncoder(nn.Module):
 
         self.layer_norm = nn.LayerNorm(token_dim)
 
-        self.attnpool = AttentionPool2d(input_resolution, token_dim, heads, output_dim)
+        #self.attnpool = AttentionPool2d(input_resolution, token_dim, heads, output_dim)
 
         #self.mlp_out = nn.Linear(token_dim, output_dim)
     def forward(self, x):
@@ -601,7 +601,7 @@ class KernelMLPMixerEncoder(nn.Module):
         x = Rearrange('b h w c -> b c h w')(x)
         #x = self.mlp_out(x)
 
-        x = self.attnpool(x)
+        #x = self.attnpool(x)
         return x
 
 class KernelAttentionEncoder(nn.Module):
@@ -681,7 +681,7 @@ class BlurEncoder(nn.Module):
         self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
         #embed_dim = width * 32  # the ResNet feature dimension
         #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
-        self.attnpool = AttentionPool2d(input_resolution // 32, output_dim, heads, output_dim)
+        #self.attnpool = AttentionPool2d(input_resolution // 32, output_dim, heads, output_dim)
         #self.attnpool = None
 
 
@@ -711,7 +711,7 @@ class BlurEncoder(nn.Module):
 
         x = self.conv_out(x)
         #x = x.mean(-1).mean(-1)
-        x = self.attnpool(x)
+        #x = self.attnpool(x)
         
         return x
 
@@ -764,21 +764,28 @@ class BlurCLIP(nn.Module):
         embed_i = self.b_encoder(image)
         embed_k = self.k_encoder(kernel)
         #if torch.sum(torch.isnan(embed_i)) > 0 or torch.sum(torch.isnan(embed_k)) > 0:
-        #    import pdb; pdb.set_trace()
+
         # normalize
         embed_i = embed_i / embed_i.norm(dim=1, keepdim=True)
         embed_k = embed_k / embed_k.norm(dim=1, keepdim=True)
         #print('embed image', embed_i.norm(dim=1))
+        _embed_i = embed_i.clone()
+
+        embed_i = Rearrange('b k h w -> h w b k')(embed_i)
+        embed_k = Rearrange('b k h w -> h w k b')(embed_k)
+
         #print('embed kernel', embed_k)
         # cosine similarity as logits.
         logit_scale = self.logit_scale.exp()
-        logits_per_image = logit_scale * embed_i @ embed_k.t()
-        logits_per_kernel = logits_per_image.t()
+        #logits_per_image = logit_scale * embed_i @ embed_k.t()
+        #logits_per_kernel = logits_per_image.t()
+        logits_per_image = logit_scale * torch.matmul(embed_i, embed_k)
+        logits_per_kernel = logits_per_image.transpose(-1, -2)
 
         #embed_k = self.kernelnet(kernel)
         #return embed_i, embed_k
         #loss = clip_loss(logits_per_kernel)
-        return logits_per_image, logits_per_kernel#, loss
+        return logits_per_image, logits_per_kernel, _embed_i#, loss
     
 """
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:

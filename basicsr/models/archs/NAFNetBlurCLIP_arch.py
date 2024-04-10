@@ -214,97 +214,7 @@ class conv(nn.Module):
         return F.elu(self.norm(self.conv(x)), inplace=True)
 
 
-class upconv(nn.Module):
-    def __init__(self, num_in_layers, num_out_layers, kernel_size, scale):
-        super(upconv, self).__init__()
-        self.scale = scale
-        self.conv = conv(num_in_layers, num_out_layers, kernel_size, 1)
 
-    def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=self.scale, align_corners=True, mode='bilinear')
-        return self.conv(x)
-
-class BlurEncoderDecoder(nn.Module):
-    """
-    A ResNet class that is similar to torchvision's but contains the following changes:
-    - There are now 3 "stem" convolutions as opposed to 1, with an average pool instead of a max pool.
-    - Performs anti-aliasing strided convolutions, where an avgpool is prepended to convolutions with stride > 1
-    - The final pooling layer is a QKV attention instead of an average pool
-    """
-
-    def __init__(self, layers, output_dim, width=64): #heads, input_resolution=256,
-        super().__init__()
-        self.output_dim = output_dim
-        #self.input_resolution = input_resolution
-
-        # the 3-layer stem
-        self.conv1 = nn.Conv2d(3, width // 2, kernel_size=3, stride=2, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(width // 2)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(width // 2, width // 2, kernel_size=3, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(width // 2)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = nn.Conv2d(width // 2, width, kernel_size=3, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(width)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.avgpool = nn.AvgPool2d(2)
-
-        # residual layers
-        self._inplanes = width  # this is a *mutable* variable used during construction
-        self.layer1 = self._make_layer(width, layers[0])
-        self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
-        self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
-        self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
-
-        self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
-        #embed_dim = width * 32  # the ResNet feature dimension
-        #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
-        self.attnpool = None
-        
-
-    def _make_layer(self, planes, blocks, stride=1):
-        layers = [Bottleneck(self._inplanes, planes, stride)]
-
-        self._inplanes = planes * Bottleneck.expansion
-        for _ in range(1, blocks):
-            layers.append(Bottleneck(self._inplanes, planes))
-
-        return nn.Sequential(*layers)
-    
-    def skipconnect(self, x1, x2):
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-
-        x1 = F.pad(x1, (diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2))
-
-        # for padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-
-        x = torch.cat([x2, x1], dim=1)
-        return x
-
-    def forward(self, x):
-        def stem(x):
-            x = self.relu1(self.bn1(self.conv1(x)))
-            x = self.relu2(self.bn2(self.conv2(x)))
-            x = self.relu3(self.bn3(self.conv3(x)))
-            x = self.avgpool(x)
-            return x
-        
-        x = x.type(self.conv1.weight.dtype)
-        x = stem(x)
-        x1 = self.layer1(x)
-        x2 = self.layer2(x1)
-        x3 = self.layer3(x2)
-        x4 = self.layer4(x3)
-
-        x = self.conv_out(x4)
-        x = x.mean(-1).mean(-1)
-        
-
-        return x
 
 class ResMLPModule(nn.Module):
     def __init__(self, n_channels):
@@ -538,12 +448,16 @@ class NAFNetBlurCLIP(nn.Module):
         self.b_encoder.eval()
         embedding = self.b_encoder(inp)
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
+        embedding = Rearrange('b c h w -> b h w c')(embedding)
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         #x_hyper = self.mlp_res_block1(x_hyper)
         #x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
         x_hyper = self.fc_hyper5(x_hyper)
+
+        x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
+        import pdb; pdb.set_trace()
         """
         x_hyper = self.mlp_res_block1(x_hyper)
         x_hyper = self.mlp_res_block2(x_hyper)
@@ -604,6 +518,7 @@ class NAFNetBlurCLIP(nn.Module):
         return x[:, :, :H, :W]
     
     def parse_weights_and_biases(self, x):
+        B, _, H, W = x.shape
         weights_and_biases = [{} for _ in range(len(self.encoders))]
         
         start = 0
@@ -614,7 +529,9 @@ class NAFNetBlurCLIP(nn.Module):
             end = start + n
             if name_conv not in weights_and_biases[int(i_block)]:
                 weights_and_biases[int(i_block)][name_conv] = {'weight': None, 'bias': None}
-            weights_and_biases[int(i_block)][name_conv][name_param] = x[..., start:end].reshape(v['shape'])
+            shape = v['shape'] + [H, W]
+            #weights_and_biases[int(i_block)][name_conv][name_param] = x[..., start:end].reshape(v['shape'])
+            weights_and_biases[int(i_block)][name_conv][name_param] = x[..., start:end].reshape(shape)
             
             start=end
         return weights_and_biases
