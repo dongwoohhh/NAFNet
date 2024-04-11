@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from einops.layers.torch import Rearrange
-
+from basicsr.models.archs.SwinV2_arch import SwinTransformerV2
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -722,7 +722,9 @@ class BlurCLIP(nn.Module):
                  kernel_size=61,
                  vision_layers=[3,4,6,3],
                  kernel_layers=2,
-                 embed_dim=128
+                 embed_dim=128,
+                 patch_size=4,
+                 window_size=8,
                  #vision_layers: Union[Tuple[int, int, int, int], int],
                  #vision_width: int,
                  #vision_patch_size: int,
@@ -731,8 +733,8 @@ class BlurCLIP(nn.Module):
 
         self.k_encoder = KernelMLPMixerEncoder(kernel_size=kernel_size, output_dim=embed_dim, token_dim=128, channel_dim=128, depth=kernel_layers)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
-        self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
-        #self.b_encoder = SwinTransformerV2(img_size=256, num_classes=256, window_size=8, depths=[2,2,18,2],drop_path_rate=0.3)
+        #self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
+        self.b_encoder = SwinTransformerV2(img_size=256, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers,drop_path_rate=0.1)
         
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
         self.logit_scale_internal = 1.0 #nn.Parameter(torch.ones([]) * np.log(1 / 0.28))
