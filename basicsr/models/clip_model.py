@@ -265,7 +265,7 @@ class CLIPModel(BaseModel):
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
         
-        logits_per_image, logits_per_kernel, _ = self.net_g(self.lq, self.kernel)
+        logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal = self.net_g(self.lq, self.kernel)
 
 
         #if not isinstance(logits_per_kernel, list):
@@ -295,9 +295,40 @@ class CLIPModel(BaseModel):
         image_loss = F.cross_entropy(logits_per_image, prob_kernel)
 
         l_ce = (kernel_loss + image_loss) / 2.0
-
+        
         l_total += l_ce
         loss_dict['l_ce'] = l_ce
+        # internal
+        #import pdb; pdb.set_trace()
+        k_downscale = self.net_g.module.downscale
+        kernel_pixel_internal = Rearrange('b h w nk d -> (h w) b 1 nk d')(kernel_pixel[:, ::k_downscale, ::k_downscale])# k_downscale//2::k_downscale, k_downscale//2::k_downscale]) #
+        pdist_internal = self.compute_pdist(kernel_pixel_internal).squeeze(-1)
+        prob_internal = torch.softmax(-epsilon*pdist_internal, dim=1)
+        prob_debug = prob_internal[..., 0]
+        
+        prob_internal = Rearrange('k1 k2 b -> (b k1) k2')(prob_internal)
+
+        logits_per_kernel_internal = Rearrange('b k1 k2 -> (b k1) k2')(logits_per_kernel_internal)
+        logits_per_image_internal = Rearrange('b k1 k2 -> (b k1) k2')(logits_per_image_internal)
+        
+        # cross entropy loss
+        kernel_loss_internal = F.cross_entropy(logits_per_kernel_internal, prob_internal)
+        image_loss_internal = F.cross_entropy(logits_per_image_internal, prob_internal)
+        """
+        save_fig_dir = osp.join(f'debug_confusion_gt.png')
+        df_cm = pd.DataFrame(prob_debug.detach().cpu().numpy(), index = [i for i in range(4)], columns = [i for i in range(4)])
+        confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
+        figure = confusion.get_figure()
+        figure.savefig(save_fig_dir, dpi=400)
+
+        figure.clear()
+        import pdb; pdb.set_trace()
+        """
+        
+        l_ce_internal = (kernel_loss_internal + image_loss_internal) / 2.0
+
+        l_total += l_ce_internal
+        loss_dict['l_ce_internal'] = l_ce_internal
         #loss_dict['l_weight'] = 0.001 * sum(p.sum() for p in self.net_g.parameters())
         l_total = l_total + 0 * sum(p.sum() for p in self.net_g.parameters())
 
@@ -308,16 +339,16 @@ class CLIPModel(BaseModel):
             torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
         self.optimizer_g.step()
 
-
+        loss_dict['m_logit_scale'] = self.net_g.module.logit_scale.exp()
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
     def test(self):
         self.net_g.eval()
         with torch.no_grad():
             
-            logits_per_image, logits_per_kernel, embed_i = self.net_g(self.lq, self.kernel)
+            logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal = self.net_g(self.lq, self.kernel)
             self.output = logits_per_kernel.detach().cpu()
-            self.output_embed_i = embed_i.detach().cpu()
+            self.output_internal = logits_per_kernel_internal.detach().cpu()
         self.net_g.train()
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
@@ -401,6 +432,8 @@ class CLIPModel(BaseModel):
 
             figure.clear()
 
+            
+
             positions = torch.tensor([[1,1], [1, 6], [3,3], [6,1], [6,6]])
             n_positions = len(positions)
             boxes = torch.tensor([[32,32,64,64],[191,32,223,64],[96,96,128,128],[32,191,64,223],[191,191,223,223]])
@@ -413,11 +446,13 @@ class CLIPModel(BaseModel):
             prob_kernel = torch.softmax(-epsilon*pdist_corner, dim=1).numpy()
             # pred
             #logits_per_kernel = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(self.output)
-            embed_i = self.output_embed_i
+            #embed_i = self.output_embed_i
             
-            embed_corner = embed_i[:, :, positions[:,0], positions[:, 1]]
-            logit_scale = self.net_g.module.logit_scale.exp().detach().cpu()
+            embed_corner = self.net_g.module._embed_i.detach().cpu()[:, :, positions[:,0], positions[:, 1]]
+            logit_scale = 1.0 #self.net_g.module.logit_scale.exp().detach().cpu()
             logit_embed = logit_scale * torch.matmul(embed_corner.transpose(-1,-2), embed_corner)
+            #import pdb; pdb.set_trace()
+            #output_internal = 
             prob_embed = F.softmax(logit_embed, dim=1).numpy()
             
             for i_img, prob_i in enumerate(prob_kernel):

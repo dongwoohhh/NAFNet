@@ -732,8 +732,12 @@ class BlurCLIP(nn.Module):
         self.k_encoder = KernelMLPMixerEncoder(kernel_size=kernel_size, output_dim=embed_dim, token_dim=128, channel_dim=128, depth=kernel_layers)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
+        #self.b_encoder = SwinTransformerV2(img_size=256, num_classes=256, window_size=8, depths=[2,2,18,2],drop_path_rate=0.3)
         
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
+        self.logit_scale_internal = 1.0 #nn.Parameter(torch.ones([]) * np.log(1 / 0.28))
+        #import pdb;pdb.set_trace()
+        self.downscale = 3
         self.initialize_parameters()
         
         #nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')
@@ -763,6 +767,8 @@ class BlurCLIP(nn.Module):
                     nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
                 if name.endswith("mlp_out.weight"):
                     nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+    
+    
     def forward(self, image, kernel):
         #print(kernel[:, :, :, 0, 0])
         embed_i = self.b_encoder(image)
@@ -773,14 +779,31 @@ class BlurCLIP(nn.Module):
         embed_i = embed_i / embed_i.norm(dim=1, keepdim=True)
         embed_k = embed_k / embed_k.norm(dim=1, keepdim=True)
         #print('embed image', embed_i.norm(dim=1))
-        _embed_i = embed_i.clone()
+        self._embed_i = embed_i
+        logit_scale = self.logit_scale.exp()
+        
+
+        embed_i_internal = embed_i[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
+        embed_k_internal = embed_k[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
+
+        embed_i_internal = Rearrange('b k h w -> b (h w) k')(embed_i_internal)
+        embed_k_internal = Rearrange('b k h w -> b k (h w)')(embed_k_internal)
+        
+        """
+        logits_debug_k = logit_scale * torch.matmul(embed_k_internal.transpose(-1, -2), embed_k_internal)
+        logits_debug_i = logit_scale * torch.matmul(embed_i_internal, embed_i_internal.transpose(-1, -2))
+        import pdb; pdb.set_trace()
+        """
+
+        logits_per_image_internal = self.logit_scale_internal * torch.matmul(embed_i_internal, embed_k_internal)
+        logits_per_kernel_internal = logits_per_image_internal.transpose(-1, -2)
 
         embed_i = Rearrange('b k h w -> h w b k')(embed_i)
         embed_k = Rearrange('b k h w -> h w k b')(embed_k)
 
         #print('embed kernel', embed_k)
         # cosine similarity as logits.
-        logit_scale = self.logit_scale.exp()
+        
         #logits_per_image = logit_scale * embed_i @ embed_k.t()
         #logits_per_kernel = logits_per_image.t()
         logits_per_image = logit_scale * torch.matmul(embed_i, embed_k)
@@ -789,7 +812,7 @@ class BlurCLIP(nn.Module):
         #embed_k = self.kernelnet(kernel)
         #return embed_i, embed_k
         #loss = clip_loss(logits_per_kernel)
-        return logits_per_image, logits_per_kernel, _embed_i#, loss
+        return logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal
     
 """
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:

@@ -198,28 +198,19 @@ class GoProKernelDataset(data.Dataset):
             #count = 0
             
             #while(std_rgb < 10. or count > 5):
-            max_iter = 5
-            for i_crop in range(max_iter):
-                # random crop
-                #img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
-                #                                            gt_path)
                 
-                img_gt_crop, img_lq_crop, kernel_crop = triplet_random_crop(img_gt, img_lq, kernel, gt_size, scale_kernel,
+            img_gt_crop, img_lq_crop, kernel_crop = triplet_random_crop(img_gt, img_lq, kernel, gt_size, scale_kernel,
                                                                                 gt_path)
                 
                 
-                img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
-                std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
+            img_gt_out = img_gt_crop
+            img_lq_out = img_lq_crop
+    
                 
-                if std_rgb > 20. or i_crop == max_iter - 1:
-                    img_gt_out = img_gt_crop
-                    img_lq_out = img_lq_crop
-                    break
-                
-                # flip, rotation
-                img_crop_list, kernel_crop = augment_triplet([img_gt_crop, img_lq_crop], kernel_crop, self.opt['use_flip'],
-                                                  self.opt['use_rot'],)
-                img_gt_crop, img_lq_crop = img_crop_list
+            # flip, rotation
+            img_crop_list, kernel_crop = augment_triplet([img_gt_crop, img_lq_crop], kernel_crop, self.opt['use_flip'],
+                                                self.opt['use_rot'],)
+            img_gt_crop, img_lq_crop = img_crop_list
                 
                 
         else:

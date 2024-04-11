@@ -253,6 +253,8 @@ def main():
                 log_vars.update({'lrs': model.get_current_learning_rate()})
                 log_vars.update({'time': iter_time, 'data_time': data_time})
                 log_vars.update(model.get_current_log())
+                #log_vars.update({})
+                #import pdb; pdb.set_trace()
                 # print('msg logger .. ', current_iter)
                 msg_logger(log_vars)
 
@@ -262,7 +264,7 @@ def main():
                 model.save(epoch, current_iter)
 
             # validation
-            if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0 or current_iter == 1000):
+            if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0): # or current_iter == 1000
             # if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
                 rgb2bgr = opt['val'].get('rgb2bgr', True)
                 # wheather use uint8 image to compute metrics
