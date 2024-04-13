@@ -345,7 +345,7 @@ class CLIPModel(BaseModel):
         import pdb; pdb.set_trace()
         """
         
-        l_ce_internal = (kernel_loss_internal + image_loss_internal) / 2.0
+        l_ce_internal = 1e2 * (kernel_loss_internal + image_loss_internal) / 2.0
 
         l_total += l_ce_internal
         loss_dict['l_jsd_internal'] = l_ce_internal
