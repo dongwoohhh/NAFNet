@@ -136,8 +136,8 @@ class NAFBlockHyper(nn.Module):
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
     def normalize_weights(self, w):
-        norm_w = Rearrange('b ci co kh kw -> b ci co (kh kw) 1')(w)
-        norm_w = torch.norm(norm_w, dim=(1, 3), keepdim=True)
+        norm_w = Rearrange('b co ci kh kw -> b co ci (kh kw) 1')(w)
+        norm_w = torch.norm(norm_w, dim=(2, 3), keepdim=True)
         
         w = w / norm_w
 
@@ -197,6 +197,364 @@ class NAFBlockHyper(nn.Module):
         return y + x * self.gamma
 
 
+
+class NAFBlockModulated(nn.Module):
+    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
+        super().__init__()
+
+        dw_channel = c * DW_Expand
+        self.dw_channel = dw_channel
+        self.c = c
+        #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
+        #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        
+        
+        self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
+        self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
+        
+        self.w2 = nn.Parameter(torch.randn(dw_channel, 1, 3, 3), requires_grad=True)
+        self.b2 = nn.Parameter(torch.zeros(dw_channel))
+        nn.init.kaiming_uniform_(self.w2, mode='fan_in', nonlinearity='relu')
+        
+
+        self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
+        self.b3 = nn.Parameter(torch.zeros(c))
+        nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
+        
+        
+        # Simplified Channel Attention
+        self.sca = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
+                      groups=1, bias=True),
+        )
+
+        # SimpleGate
+        self.sg = SimpleGate()
+
+        ffn_channel = FFN_Expand * c
+        #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+
+        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
+        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
+        
+        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
+        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
+        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
+
+
+        self.norm1 = LayerNorm2d(c)
+        self.norm2 = LayerNorm2d(c)
+
+        self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+        self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+
+        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+
+    def normalize_weights(self, w):
+        norm_w = Rearrange('b co ci kh kw wh ww-> b co ci (kh kw) 1 wh ww')(w)
+
+        norm_w = torch.norm(norm_w, dim=(2, 3), keepdim=True)
+        
+        w = w / norm_w
+
+        return w
+
+
+    def conv1x1_pixelwise(self, x, weights_and_biases):
+        w = weights_and_biases['weight']
+        b = weights_and_biases['bias']
+
+        w = w.squeeze((3,4))
+        #identity = x
+
+        B, _, H, W = x.shape
+        _, Co, Ci, wH, wW = w.shape
+        
+        w = Rearrange('b co ci h w -> b (co ci) h w')(w)
+        
+        
+        w = F.interpolate(w, size=(H, W), mode='bilinear')
+        w = w.reshape(B, Co, Ci, H, W)
+        w = Rearrange('b co ci h w -> b h w co ci')(w)#.reshape(B*H*W, Co, Ci)
+
+        b = F.interpolate(b, size=(H, W), mode='bilinear')
+        b = Rearrange('b co h w -> b h w co')(b)
+
+        x = Rearrange('b c h w -> b h w c')(x).unsqueeze(-1)#.reshape(B*H*W, Ci)
+
+        x = torch.matmul(w, x)
+        x = x.squeeze(-1)
+        x = x + b
+        x = Rearrange('b h w c -> b c h w')(x)
+
+        #x = x+identity
+
+        return x
+    
+    def conv1x1_group(self, x, weights_and_biases):
+        w = weights_and_biases['weight']
+        b = weights_and_biases['bias']
+
+        w = w.squeeze((3,4))
+        #identity = x
+
+        B, _, H, W = x.shape
+        _, Co, Ci, wH, wW = w.shape
+        
+        patch_H = H // wH
+        patch_W = W // wW
+
+
+        w = Rearrange('b co ci h w -> b ci h w co')(w)
+        w = w.reshape(B, Ci, wH*wW*Co)
+        w = Rearrange('b ci ca -> b ca ci')(w)
+        w = Rearrange('b ca ci -> (b ca) ci')(w)[..., None, None]
+
+        b = Rearrange('b co h w -> b h w co')(b)
+        b = b.reshape(B*wH*wW*Co)
+
+
+        x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
+        x = x.reshape(B, Ci, patch_H, patch_W, wH, wW)
+        x = Rearrange('b ci ph pw wh ww -> b wh ww ci ph pw')(x)
+        x = x.reshape(B*wH*wW*Ci, patch_H, patch_W)
+        """
+        x = x.reshape(B, Ci, wH, patch_H, wW, patch_W)
+        x = Rearrange('b ci wh ph ww pw -> b wh ww ci ph pw')(x)
+        x = x.reshape(B*wH*wW*Ci, patch_H, patch_W)
+        """
+        #x_list = [F.conv2d(x[i:i+1], w[i], b[i],stride=1, padding=0, dilation=1, groups=wH*wW) for i in range(B)]
+        #x = torch.cat(x_list, dim=0)
+        x = F.conv2d(x, w, b, stride=1, padding=0, dilation=1, groups=B*wH*wW)
+
+        x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
+        x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
+        x = x.reshape(B, Co, H, W)
+
+        return x
+    
+    def conv3x3_group(self, x, weights_and_biases):
+        w = weights_and_biases['weight']
+        b = weights_and_biases['bias']
+
+        #w = w.squeeze((3,4))
+        #identity = x
+        
+        B, _, H, W = x.shape
+        _, Co, Ci, kH, kW, wH, wW = w.shape
+        
+        patch_H = H // wH
+        patch_W = W // wW
+
+
+        w = Rearrange('b co ci kh kw h w -> b ci h w co kh kw')(w)
+        w = w.reshape(B, Ci, wH*wW*Co, kH, kW)
+        w = Rearrange('b ci ca kh kw -> b ca ci kh kw')(w)
+        w = Rearrange('b ca ci kh kw -> (b ca) ci kh kw')(w)
+        #w = w[..., None, None]
+
+        b = Rearrange('b co h w -> b h w co')(b)
+        b = b.reshape(B*wH*wW*Co)
+
+        
+        x = F.unfold(x, kernel_size=(patch_H+2, patch_W+2), padding=(1, 1), stride=(patch_H, patch_W))
+        x = x.reshape(B, Co, patch_H+2, patch_W+2, wH, wW)
+        x = Rearrange('b co ph pw wh ww -> b wh ww co ph pw')(x)
+        x = x.reshape(B*wH*wW*Co, patch_H+2, patch_W+2)
+        x = F.conv2d(x, w, b, stride=1, padding=0, dilation=1, groups=B*wH*wW*Co)
+        #x1_tmp = x1[:, :, 1:-1, 1:-1]
+        #x1_tmp = Rearrange('a b c d e f -> a b e c f d')(x1_tmp)
+        #x1_tmp = x1_tmp.reshape(B, Co, H, W)
+        """
+        x = x.reshape(B, Co, wH, patch_H, wW, patch_W)
+        x = Rearrange('b co wh ph ww pw -> b wh ww co ph pw')(x)
+        x = x.reshape(B*wH*wW*Co, patch_H, patch_W)
+
+        #x_list = [F.conv2d(x[i:i+1], w[i], b[i], stride=1, padding=1, dilation=1, groups=wH*wW*Co) for i in range(B)]
+        #x = torch.cat(x_list, dim=0)
+        x = F.conv2d(x, w, b, stride=1, padding=1, dilation=1, groups=B*wH*wW*Co)
+        """
+        x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
+        x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
+        x = x.reshape(B, Co, H, W)
+
+        return x
+    
+    def conv1x1_modulated(self, x, w_base, b_base, weights_and_biases):
+        modulation = weights_and_biases['weight']
+        #b = weights_and_biases['bias']
+        
+        #w = w.squeeze((3,4))
+        #identity = x
+        
+        w = w_base[None, ..., None, None] * modulation
+        b = b_base[None, ..., None, None]
+
+        w = self.normalize_weights(w)
+
+        B, _, H, W = x.shape
+        _, Co, Ci, kH, kW, wH, wW = w.shape
+        
+        patch_H = H // wH
+        patch_W = W // wW
+
+        w = Rearrange('b co ci kh kw h w -> b ci h w co kh kw')(w)
+        w = w.reshape(B, Ci, wH*wW*Co, kH, kW)
+        w = Rearrange('b ci ca kh kw -> b ca ci kh kw')(w)
+        w = Rearrange('b ca ci kh kw -> (b ca) ci kh kw')(w)
+
+
+        #w = Rearrange('b co ci h w -> b ci h w co')(w)
+        #w = w.reshape(B, Ci, wH*wW*Co)
+        #w = Rearrange('b ci ca -> b ca ci')(w)
+        #w = Rearrange('b ca ci -> (b ca) ci')(w)[..., None, None]
+
+        #b = Rearrange('b co h w -> b h w co')(b)
+        #b = b.reshape(B*wH*wW*Co)
+
+
+        x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
+        x = x.reshape(B, Ci, patch_H, patch_W, wH, wW)
+        x = Rearrange('b ci ph pw wh ww -> b wh ww ci ph pw')(x)
+        x = x.reshape(B*wH*wW*Ci, patch_H, patch_W)
+
+        """
+        x = x.reshape(B, Ci, wH, patch_H, wW, patch_W)
+        x = Rearrange('b ci wh ph ww pw -> b wh ww ci ph pw')(x)
+        x = x.reshape(B*wH*wW*Ci, patch_H, patch_W)
+        """
+        #x_list = [F.conv2d(x[i:i+1], w[i], b[i],stride=1, padding=0, dilation=1, groups=wH*wW) for i in range(B)]
+        #x = torch.cat(x_list, dim=0)
+        x = F.conv2d(x, w, None, stride=1, padding=0, dilation=1, groups=B*wH*wW)
+
+        x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
+        x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
+        x = x.reshape(B, Co, H, W)
+
+        x = x + b
+
+        return x
+    
+    def conv3x3_modulated(self, x, w_base, b_base, weights_and_biases):
+        modulation = weights_and_biases['weight']
+
+        #w = w.squeeze((3,4))
+        #identity = x
+        
+        w = w_base[None, ..., None, None] * modulation
+        b = b_base[None, ..., None, None]
+
+        w = self.normalize_weights(w)
+
+        B, _, H, W = x.shape
+        _, Co, Ci, kH, kW, wH, wW = w.shape
+        
+        patch_H = H // wH
+        patch_W = W // wW
+
+
+        w = Rearrange('b co ci kh kw h w -> b ci h w co kh kw')(w)
+        w = w.reshape(B, Ci, wH*wW*Co, kH, kW)
+        w = Rearrange('b ci ca kh kw -> b ca ci kh kw')(w)
+        w = Rearrange('b ca ci kh kw -> (b ca) ci kh kw')(w)
+        #w = w[..., None, None]
+
+        #b = Rearrange('b co h w -> b h w co')(b)
+        #b = b.reshape(B*wH*wW*Co)
+
+        
+        x = F.unfold(x, kernel_size=(patch_H+2, patch_W+2), padding=(1, 1), stride=(patch_H, patch_W))
+        x = x.reshape(B, Co, patch_H+2, patch_W+2, wH, wW)
+        x = Rearrange('b co ph pw wh ww -> b wh ww co ph pw')(x)
+        x = x.reshape(B*wH*wW*Co, patch_H+2, patch_W+2)
+        x = F.conv2d(x, w, None, stride=1, padding=0, dilation=1, groups=B*wH*wW*Co)
+        #x1_tmp = x1[:, :, 1:-1, 1:-1]
+        #x1_tmp = Rearrange('a b c d e f -> a b e c f d')(x1_tmp)
+        #x1_tmp = x1_tmp.reshape(B, Co, H, W)
+        """
+        x = x.reshape(B, Co, wH, patch_H, wW, patch_W)
+        x = Rearrange('b co wh ph ww pw -> b wh ww co ph pw')(x)
+        x = x.reshape(B*wH*wW*Co, patch_H, patch_W)
+
+        #x_list = [F.conv2d(x[i:i+1], w[i], b[i], stride=1, padding=1, dilation=1, groups=wH*wW*Co) for i in range(B)]
+        #x = torch.cat(x_list, dim=0)
+        x = F.conv2d(x, w, b, stride=1, padding=1, dilation=1, groups=B*wH*wW*Co)
+        """
+        x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
+        x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
+        x = x.reshape(B, Co, H, W)
+
+        x = x + b
+
+        return x
+    
+    def forward(self, inp, weights_and_bias):
+        x = inp
+        B = x.shape[0]
+
+        x = self.norm1(x)
+
+        #x = self.conv1x1_group(x, weights_and_bias['conv1'])
+        x = self.conv1x1_modulated(x, self.w1, self.b1, weights_and_bias['conv1'])
+        
+
+        """
+        w2 = weights_and_bias['conv2']['weight']
+        b2 = weights_and_bias['conv2']['bias']
+        w2 = w2.squeeze(2)
+
+        B, C, kH, kW, wH, wW = w2.shape
+        _, _, H, W = x.shape
+
+        w2 = Rearrange('b c kh kw h w -> (b c) (kh kw) h w')(w2)
+        
+        w2 = F.interpolate(w2, size=(H, W), mode='bilinear')
+        w2 = w2.reshape(B, C, kH*kW, H, W)
+        w2 = w2.contiguous()
+
+        b2 = F.interpolate(b2, size=(H, W), mode='bilinear')
+        
+        x = x.contiguous()
+        x = [ddf(x[i].unsqueeze(1), torch.ones((C, 1, kH, kW) , device=torch.device('cuda')), w2[i], 3, 1, 1, 'mul').squeeze(1) for i in range(B)] #, 'f'
+        x = torch.stack(x, dim=0)
+
+        x = x + b2
+        """
+        #x = self.conv3x3_group(x, weights_and_bias['conv2'])
+        x = self.conv3x3_modulated(x, self.w2, self.b2, weights_and_bias['conv2'])
+
+        x = self.sg(x)
+        x = x * self.sca(x)
+        
+        #x = self.conv1x1_group(x, weights_and_bias['conv3'])
+        x = self.conv1x1_modulated(x, self.w3, self.b3, weights_and_bias['conv3'])
+
+        x = self.dropout1(x)
+
+        y = inp + x * self.beta
+
+        x = self.norm2(y)
+        
+        #x = self.conv1x1_group(x, weights_and_bias['conv4'])
+        x = self.conv1x1_modulated(x, self.w4, self.b4, weights_and_bias['conv4'])
+        
+        x = self.sg(x)
+        
+        #x = self.conv1x1_group(x, weights_and_bias['conv5'])
+        x = self.conv1x1_modulated(x, self.w5, self.b5, weights_and_bias['conv5'])
+
+        x = self.dropout2(x)
+        
+        return y + x * self.gamma
+
+
 class conv(nn.Module):
     def __init__(self, num_in_layers, num_out_layers, kernel_size, stride):
         super(conv, self).__init__()
@@ -212,9 +570,6 @@ class conv(nn.Module):
 
     def forward(self, x):
         return F.elu(self.norm(self.conv(x)), inplace=True)
-
-
-
 
 class ResMLPModule(nn.Module):
     def __init__(self, n_channels):
@@ -239,7 +594,7 @@ class ResMLPModule(nn.Module):
 
 class NAFNetBlurCLIP(nn.Module):
 
-    def __init__(self, pretrained_clip_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
+    def __init__(self, pretrained_clip_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128):
         super().__init__()
 
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -254,7 +609,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.downs = nn.ModuleList()
 
         self.pretrained_clip_dir = pretrained_clip_dir
-        self.b_encoder = BlurEncoder(layers=[3,4,6,3], output_dim=128, width=64)
+        self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         self.load_pretrained_blurclip_parameters()
 
         chan = width
@@ -325,26 +680,34 @@ class NAFNetBlurCLIP(nn.Module):
         #name.startswith('decoders.0') or
         #or name.endswith('bias'))
         for name, param in self.named_parameters(): 
-            if (name.startswith('decoders.1') or name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+            if (name.startswith('decoders.0') or name.startswith('decoders.1') or name.startswith('decoders.2') or name.startswith('decoders.3')) and \
                 (name.endswith('weight')) and \
                     name.find('conv')>0 and name.find('b_encoder')<0:
                 dims=[-1]
-                dims.extend(list(param.shape))
-                #print(name, param.shape)
-                self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
-                n_params = n_params+param.nelement()
+                #dims.extend(list(param.shape))
+                dims.extend(list([1, param.shape[1],1,1]))
+                print(name, param.shape)
+                #self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
+                self.conv_params_dict[name] = {'n_elements': param.shape[1], 'shape':dims}
+                #print(self.conv_params_dict[name])
+                #n_params = n_params+param.nelement()
+                n_params = n_params+param.shape[0]
                 
                 if name.startswith('decoders.0'):
-                    n_params0 += param.nelement()
+                    #n_params0 += param.nelement()
+                    n_params0 = n_params0+param.shape[1]
                 if name.startswith('decoders.1'):
-                    n_params1 += param.nelement()
+                    #n_params1 += param.nelement()
+                    n_params1 = n_params1+param.shape[1]
                 if name.startswith('decoders.2'):
-                    n_params2 += param.nelement()
+                    #n_params2 += param.nelement()
+                    n_params2 = n_params2+param.shape[1]
                 if name.startswith('decoders.3'):
-                    n_params3 += param.nelement()
+                    #n_params3 += param.nelement()
+                    n_params3 = n_params3+param.shape[1]
 
         print(f"##### DECODER PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params3)} {str(n_params)}")
-        
+
         #self.mlp_res_block1 = ResMLPModule(256)
         #self.mlp_res_block2 = ResMLPModule(256)
         
@@ -396,7 +759,7 @@ class NAFNetBlurCLIP(nn.Module):
             else:
                 assert num == 1
                 self.decoders_hyper.append(
-                    NAFBlockHyper(chan)
+                    NAFBlockModulated(chan)
                 )
                 self.decoders.pop(i-count)
                 count=count+1
@@ -447,17 +810,16 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.b_encoder.eval()
         embedding = self.b_encoder(inp)
+        
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
         embedding = Rearrange('b c h w -> b h w c')(embedding)
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
-        #x_hyper = self.mlp_res_block1(x_hyper)
-        #x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
         x_hyper = self.fc_hyper5(x_hyper)
 
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
-        import pdb; pdb.set_trace()
+
         """
         x_hyper = self.mlp_res_block1(x_hyper)
         x_hyper = self.mlp_res_block2(x_hyper)
@@ -530,8 +892,9 @@ class NAFNetBlurCLIP(nn.Module):
             if name_conv not in weights_and_biases[int(i_block)]:
                 weights_and_biases[int(i_block)][name_conv] = {'weight': None, 'bias': None}
             shape = v['shape'] + [H, W]
+
             #weights_and_biases[int(i_block)][name_conv][name_param] = x[..., start:end].reshape(v['shape'])
-            weights_and_biases[int(i_block)][name_conv][name_param] = x[..., start:end].reshape(shape)
+            weights_and_biases[int(i_block)][name_conv][name_param] = x[:, start:end].reshape(shape)
             
             start=end
         return weights_and_biases
