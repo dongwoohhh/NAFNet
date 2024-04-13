@@ -736,10 +736,12 @@ class BlurCLIP(nn.Module):
         #self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         self.b_encoder = SwinTransformerV2(img_size=256, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers,drop_path_rate=0.1)
         
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
-        self.logit_scale_internal = 1.0 #nn.Parameter(torch.ones([]) * np.log(1 / 0.28))
+        #self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
+        #self.logit_scale_internal = nn.Parameter(torch.ones([]), requires_grad=True) #* np.log(1 / 0.28))
+        self.logit_scale = nn.Parameter(torch.ones([]) *np.log(8.28), requires_grad=False)
+        self.logit_scale_internal = nn.Parameter(torch.ones([]) * np.log(2.70), requires_grad=False) #* np.log(1 / 0.28))
         #import pdb;pdb.set_trace()
-        self.downscale = 3
+        self.downscale = 1
         self.initialize_parameters()
         
         #nn.init.kaiming_normal_(self.conv1.weight, mode='fan_out', nonlinearity='relu')

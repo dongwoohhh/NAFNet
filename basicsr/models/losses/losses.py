@@ -114,3 +114,53 @@ class PSNRLoss(nn.Module):
 
         return self.loss_weight * self.scale * torch.log(((pred - target) ** 2).mean(dim=(1, 2, 3)) + 1e-8).mean()
 
+class JSDivergence(nn.Module):
+    def __init__(self, eps=1e-12):
+        """
+        Initialize the Jensen-Shannon Divergence module.
+        
+        Args:
+        - eps (float): A small value to ensure numerical stability.
+        """
+        super(JSDivergence, self).__init__()
+        self.eps = eps
+
+    def forward(self, logits, target_probs):
+        """
+        Calculate the Jensen-Shannon Divergence between logits and target probabilities.
+        
+        Args:
+        - logits (Tensor): Logits from the model.
+        - target_probs (Tensor): Target probability distribution.
+        
+        Returns:
+        - JS divergence (Tensor)
+        """
+        # Convert logits to probabilities
+        pred_probs = F.softmax(logits, dim=1)
+        
+        # Calculate the mean distribution M
+        M = 0.5 * (pred_probs + target_probs)
+        
+        # KL divergence for each distribution against M
+        kl_div1 = self.kl_divergence(target_probs, M)
+        kl_div2 = self.kl_divergence(pred_probs, M)
+        
+        # Jensen-Shannon Divergence
+        js_div = 0.5 * kl_div1 + 0.5 * kl_div2
+        return js_div
+
+    def kl_divergence(self, p, q):
+        """
+        Calculate the Kullback-Leibler divergence D(P || Q).
+        
+        Args:
+        - p (Tensor): True probability distribution.
+        - q (Tensor): Approximated probability distribution.
+        
+        Returns:
+        - KL divergence (Tensor)
+        """
+        p = p + self.eps  # Ensure numerical stability
+        q = q + self.eps  # Ensure numerical stability
+        return (p * (p / q).log()).sum(dim=1).mean()

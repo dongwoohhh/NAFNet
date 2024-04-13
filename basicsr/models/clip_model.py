@@ -52,7 +52,10 @@ class CLIPModel(BaseModel):
         train_opt = self.opt['train']
 
         # define losses
-        self.cri_embed = F.cross_entropy
+        #self.cri_embed = F.cross_entropy
+
+        # define loss
+        self.cri_embed = loss_module.JSDivergence()
 
         # set up optimizers and schedulers
         self.setup_optimizers()
@@ -291,44 +294,61 @@ class CLIPModel(BaseModel):
         logits_per_image = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(logits_per_image)
 
         # cross entropy loss
-        kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
-        image_loss = F.cross_entropy(logits_per_image, prob_kernel)
+        #kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
+        #image_loss = F.cross_entropy(logits_per_image, prob_kernel)
+        kernel_loss = self.cri_embed(logits_per_kernel, prob_kernel)
+        image_loss = self.cri_embed(logits_per_image, prob_kernel)
 
         l_ce = (kernel_loss + image_loss) / 2.0
         
         l_total += l_ce
-        loss_dict['l_ce'] = l_ce
+        loss_dict['l_jsd'] = l_ce
         # internal
         #import pdb; pdb.set_trace()
         k_downscale = self.net_g.module.downscale
         kernel_pixel_internal = Rearrange('b h w nk d -> (h w) b 1 nk d')(kernel_pixel[:, ::k_downscale, ::k_downscale])# k_downscale//2::k_downscale, k_downscale//2::k_downscale]) #
         pdist_internal = self.compute_pdist(kernel_pixel_internal).squeeze(-1)
         prob_internal = torch.softmax(-epsilon*pdist_internal, dim=1)
-        prob_debug = prob_internal[..., 0]
         
+        #import pdb; pdb.set_trace()
+        prob_debug = prob_internal[..., 0]
+        logit_debug = logits_per_kernel_internal[0]
         prob_internal = Rearrange('k1 k2 b -> (b k1) k2')(prob_internal)
 
         logits_per_kernel_internal = Rearrange('b k1 k2 -> (b k1) k2')(logits_per_kernel_internal)
         logits_per_image_internal = Rearrange('b k1 k2 -> (b k1) k2')(logits_per_image_internal)
         
         # cross entropy loss
-        kernel_loss_internal = F.cross_entropy(logits_per_kernel_internal, prob_internal)
-        image_loss_internal = F.cross_entropy(logits_per_image_internal, prob_internal)
+        #kernel_loss_internal = F.cross_entropy(logits_per_kernel_internal, prob_internal)
+        #image_loss_internal = F.cross_entropy(logits_per_image_internal, prob_internal)
+        kernel_loss_internal = self.cri_embed(logits_per_kernel_internal, prob_internal)
+        image_loss_internal = self.cri_embed(logits_per_image_internal, prob_internal)
         """
         save_fig_dir = osp.join(f'debug_confusion_gt.png')
-        df_cm = pd.DataFrame(prob_debug.detach().cpu().numpy(), index = [i for i in range(4)], columns = [i for i in range(4)])
+        df_cm = pd.DataFrame(prob_debug.detach().cpu().numpy(), index = [i for i in range(9)], columns = [i for i in range(9)])
         confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
         figure = confusion.get_figure()
         figure.savefig(save_fig_dir, dpi=400)
 
         figure.clear()
+
+        prob_pred_debug = torch.softmax(logit_debug, dim=1)
+        save_fig_dir = osp.join(f'debug_confusion_pred.png')
+        df_cm = pd.DataFrame(prob_pred_debug.detach().cpu().numpy(), index = [i for i in range(9)], columns = [i for i in range(9)])
+        confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
+        figure = confusion.get_figure()
+        figure.savefig(save_fig_dir, dpi=400)
+
+        figure.clear()
+
+        torchvision.utils.save_image(self.lq[0],'debug_image.png')
         import pdb; pdb.set_trace()
         """
         
         l_ce_internal = (kernel_loss_internal + image_loss_internal) / 2.0
 
         l_total += l_ce_internal
-        loss_dict['l_ce_internal'] = l_ce_internal
+        loss_dict['l_jsd_internal'] = l_ce_internal
         #loss_dict['l_weight'] = 0.001 * sum(p.sum() for p in self.net_g.parameters())
         l_total = l_total + 0 * sum(p.sum() for p in self.net_g.parameters())
 
@@ -339,7 +359,8 @@ class CLIPModel(BaseModel):
             torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
         self.optimizer_g.step()
 
-        loss_dict['m_logit_scale'] = self.net_g.module.logit_scale.exp()
+        loss_dict['m_ls'] = self.net_g.module.logit_scale.exp()
+        loss_dict['m_ls_i'] = self.net_g.module.logit_scale_internal.exp()
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
     def test(self):
@@ -393,8 +414,10 @@ class CLIPModel(BaseModel):
             logits_per_kernel = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(self.output)
             logits_per_image = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(self.output.transpose(-1,-2)) 
     
-            kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
-            image_loss = F.cross_entropy(logits_per_image, prob_kernel)
+            #kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
+            #image_loss = F.cross_entropy(logits_per_image, prob_kernel)
+            kernel_loss = self.cri_embed(logits_per_kernel, prob_kernel)
+            image_loss = self.cri_embed(logits_per_image, prob_kernel)
 
             l_ce = (kernel_loss + image_loss) / 2.0
 
@@ -432,8 +455,6 @@ class CLIPModel(BaseModel):
 
             figure.clear()
 
-            
-
             positions = torch.tensor([[1,1], [1, 6], [3,3], [6,1], [6,6]])
             n_positions = len(positions)
             boxes = torch.tensor([[32,32,64,64],[191,32,223,64],[96,96,128,128],[32,191,64,223],[191,191,223,223]])
@@ -449,7 +470,7 @@ class CLIPModel(BaseModel):
             #embed_i = self.output_embed_i
             
             embed_corner = self.net_g.module._embed_i.detach().cpu()[:, :, positions[:,0], positions[:, 1]]
-            logit_scale = 1.0 #self.net_g.module.logit_scale.exp().detach().cpu()
+            logit_scale = self.net_g.module.logit_scale.exp().detach().cpu().item()
             logit_embed = logit_scale * torch.matmul(embed_corner.transpose(-1,-2), embed_corner)
             #import pdb; pdb.set_trace()
             #output_internal = 
