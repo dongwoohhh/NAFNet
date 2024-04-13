@@ -321,8 +321,8 @@ class CLIPModel(BaseModel):
         # cross entropy loss
         #kernel_loss_internal = F.cross_entropy(logits_per_kernel_internal, prob_internal)
         #image_loss_internal = F.cross_entropy(logits_per_image_internal, prob_internal)
-        kernel_loss_internal = self.cri_embed(logits_per_kernel_internal, prob_internal)
-        image_loss_internal = self.cri_embed(logits_per_image_internal, prob_internal)
+        kernel_loss_internal = self.cri_embed(logits_per_kernel_internal, prob_internal, weighted=True)
+        image_loss_internal = self.cri_embed(logits_per_image_internal, prob_internal, weighted=True)
         """
         save_fig_dir = osp.join(f'debug_confusion_gt.png')
         df_cm = pd.DataFrame(prob_debug.detach().cpu().numpy(), index = [i for i in range(9)], columns = [i for i in range(9)])

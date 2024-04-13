@@ -1,0 +1,126 @@
+# ------------------------------------------------------------------------
+# Copyright (c) 2022 megvii-model. All Rights Reserved.
+# ------------------------------------------------------------------------
+# Modified from BasicSR (https://github.com/xinntao/BasicSR)
+# Copyright 2018-2020 BasicSR Authors
+# ------------------------------------------------------------------------
+# general settings
+# v2: no pooling embedding.
+name: BlurCLIP_v2_gopro_jsd_fixedscale
+model_type: CLIPModel
+scale: 1
+
+num_gpu: 4
+manual_seed: 42
+
+datasets:
+  train:
+    name: GoPro-kernel-train
+    type: GoProKernelDataset
+    #dataroot_gt: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/target, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/target]
+    #dataroot_lq: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/input_noise, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/input_noise, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/input, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/input_noise]
+    #dataroot_kernel: [/mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk5/dongwool/results_nerf/gs-blur/renders_v_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_p_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_n_dy/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/kernel, /mnt/disk4/dongwool/results_nerf/gs-blur/renders_k2/kernel]
+    dataroot_gt: [datasets/GoPro_Large/train/target]
+    dataroot_lq: [datasets/GoPro_Large/train/input]
+    dataroot_kernel: [datasets/GoPro_Large/train/kernel]
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 256
+    use_flip: true
+    use_rot: true
+
+    kernel_size: 31
+    scale_kernel: 32
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 8
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: GoPro-blur-kernel-test
+    type: GoProKernelDataset
+    dataroot_gt: [datasets/GoPro_Large/test/target]
+    dataroot_lq: [datasets/GoPro_Large/test/input]
+    dataroot_kernel: [datasets/GoPro_Large/test/kernel]
+
+    gt_size: 256
+    kernel_size: 31
+    scale_kernel: 32
+    batch_size_per_gpu: 8
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+network_g:
+  type: BlurCLIP
+  kernel_size: 31
+  vision_layers: [3,4,6,3]
+  kernel_layers: 4
+  embed_dim: 128
+
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  optim_g:
+    type: AdamW
+    lr: !!float 1e-4
+    weight_decay: !!float 1e-3
+    betas: [0.9, 0.9]
+
+  scheduler:
+    type: TrueCosineAnnealingLR
+    T_max: 100000
+    eta_min: !!float 1e-7
+
+  total_iter: 200000
+  warmup_iter: -1 # no warm up
+
+  # losses
+  pixel_opt:
+    type: MSELoss
+    loss_weight: 1
+    reduction: mean
+  epsilon: !!float 12.0
+
+# validation settings
+val:
+  val_freq: !!float 2e4
+  save_img: false
+
+
+  metrics:
+    psnr: # metric name, can be arbitrary
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 1e4
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

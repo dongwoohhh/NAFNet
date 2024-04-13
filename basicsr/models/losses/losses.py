@@ -124,8 +124,9 @@ class JSDivergence(nn.Module):
         """
         super(JSDivergence, self).__init__()
         self.eps = eps
+        self.gamma = 2.0
 
-    def forward(self, logits, target_probs):
+    def forward(self, logits, target_probs, weighted=False):
         """
         Calculate the Jensen-Shannon Divergence between logits and target probabilities.
         
@@ -141,16 +142,16 @@ class JSDivergence(nn.Module):
         
         # Calculate the mean distribution M
         M = 0.5 * (pred_probs + target_probs)
-        
+
         # KL divergence for each distribution against M
-        kl_div1 = self.kl_divergence(target_probs, M)
-        kl_div2 = self.kl_divergence(pred_probs, M)
+        kl_div1 = self.kl_divergence(target_probs, M, weighted=weighted)
+        kl_div2 = self.kl_divergence(pred_probs, M, weighted=weighted)
         
         # Jensen-Shannon Divergence
         js_div = 0.5 * kl_div1 + 0.5 * kl_div2
         return js_div
 
-    def kl_divergence(self, p, q):
+    def kl_divergence(self, p, q, weighted):
         """
         Calculate the Kullback-Leibler divergence D(P || Q).
         
@@ -163,4 +164,10 @@ class JSDivergence(nn.Module):
         """
         p = p + self.eps  # Ensure numerical stability
         q = q + self.eps  # Ensure numerical stability
-        return (p * (p / q).log()).sum(dim=1).mean()
+        if weighted ==False:
+            return (p * (p / q).log()).sum(dim=1).mean()
+        else:
+            error = torch.abs(p - q)
+            weights = torch.exp(self.gamma * error) - 1.0
+            print(torch.min(weights), torch.max(weights))
+            return (weights * p *  (p / q).log()).sum(dim=1).mean()
