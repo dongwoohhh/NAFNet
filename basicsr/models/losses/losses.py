@@ -169,5 +169,5 @@ class JSDivergence(nn.Module):
         else:
             error = torch.abs(p - q)
             weights = torch.exp(self.gamma * error) - 1.0
-            print(torch.min(weights), torch.max(weights))
+            #print(torch.min(weights), torch.max(weights))
             return (weights * p *  (p / q).log()).sum(dim=1).mean()

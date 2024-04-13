@@ -6,7 +6,7 @@
 # ------------------------------------------------------------------------
 # general settings
 # v2: no pooling embedding.
-name: BlurCLIP_v2_gopro_jsd_fixedscale
+name: BlurCLIP_v2_gopro_jsd_res50_focal
 model_type: CLIPModel
 scale: 1
 
