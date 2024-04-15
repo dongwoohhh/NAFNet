@@ -171,3 +171,40 @@ class JSDivergence(nn.Module):
             weights = torch.exp(self.gamma * error) - 1.0
             #print(torch.min(weights), torch.max(weights))
             return (weights * p *  (p / q).log()).sum(dim=1).mean()
+        
+
+
+class CosineSimilarityLoss(nn.Module):
+    """Cosine Similarity Loss.
+
+    Args:
+        loss_weight (float): Loss weight for MSE loss. Default: 1.0.
+        reduction (str): Specifies the reduction to apply to the output.
+            Supported choices are 'none' | 'mean' | 'sum'. Default: 'mean'.
+    """
+
+    def __init__(self, loss_weight=1.0, reduction='mean'):
+        super(CosineSimilarityLoss, self).__init__()
+        if reduction not in ['mean']: #['none', 'mean', 'sum']:
+            raise ValueError(f'Unsupported reduction mode: {reduction}. '
+                             f'Supported ones are: {_reduction_modes}')
+
+        self.loss_weight = loss_weight
+        self.reduction = reduction
+
+    def forward(self, pred, target, **kwargs):
+        """
+        Args:
+            pred (Tensor): of shape (N, C, H, W). Predicted tensor.
+            target (Tensor): of shape (N, C, H, W). Ground truth tensor.
+            weight (Tensor, optional): of shape (N, C, H, W). Element-wise
+                weights. Default: None.
+        """
+        target_normalized = target / target.norm(dim=1, keepdim=True)
+        pred_normalized= pred / pred.norm(dim=1, keepdim=True)
+
+        cosine_sim = F.cosine_similarity(pred_normalized, target_normalized, dim=1)
+        
+        loss = 1 - cosine_sim.mean()
+        
+        return self.loss_weight*loss

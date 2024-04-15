@@ -686,7 +686,7 @@ class NAFNetBlurCLIP(nn.Module):
                 dims=[-1]
                 #dims.extend(list(param.shape))
                 dims.extend(list([1, param.shape[1],1,1]))
-                print(name, param.shape)
+                #print(name, param.shape)
                 #self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
                 self.conv_params_dict[name] = {'n_elements': param.shape[1], 'shape':dims}
                 #print(self.conv_params_dict[name])
@@ -810,8 +810,8 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.b_encoder.eval()
         embedding = self.b_encoder(inp)
-        
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
+
         embedding = Rearrange('b c h w -> b h w c')(embedding)
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
