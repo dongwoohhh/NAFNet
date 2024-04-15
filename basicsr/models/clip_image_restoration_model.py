@@ -103,14 +103,14 @@ class CLIPImageRestorationModel(BaseModel):
         optim_type = train_opt['optim_g'].pop('type')
         if optim_type == 'Adam':
             self.optimizer_g = torch.optim.Adam([{'params': optim_params},
-                                                 {'params': hyper_params, 'lr':1e-5, 'weight_decay': 1e-4}],
+                                                 {'params': hyper_params, 'lr':5e-4}],
                                                 **train_opt['optim_g'])
         elif optim_type == 'SGD':
             self.optimizer_g = torch.optim.SGD(optim_params,
                                                **train_opt['optim_g'])
         elif optim_type == 'AdamW':
             self.optimizer_g = torch.optim.AdamW([{'params': optim_params},
-                                                  {'params': hyper_params, 'lr':1e-5, 'weight_decay': 1e-4}],
+                                                  {'params': hyper_params, 'lr':5e-4}],
                                                 **train_opt['optim_g'])
             pass
         else:
