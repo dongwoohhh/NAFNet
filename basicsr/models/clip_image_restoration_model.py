@@ -68,6 +68,14 @@ class CLIPImageRestorationModel(BaseModel):
 
         if self.cri_pix is None and self.cri_perceptual is None:
             raise ValueError('Both pixel and perceptual losses are None.')
+        
+        if train_opt.get('embedding_opt'):
+            embedding_type = train_opt['embedding_opt'].pop('type')
+            cri_embedding_cls = getattr(loss_module, embedding_type)
+            self.cri_embedding = cri_embedding_cls(
+                **train_opt['embedding_opt']).to(self.device)
+        else:
+            self.cri_embedding = None
 
         # set up optimizers and schedulers
         self.setup_optimizers()
@@ -95,14 +103,14 @@ class CLIPImageRestorationModel(BaseModel):
         optim_type = train_opt['optim_g'].pop('type')
         if optim_type == 'Adam':
             self.optimizer_g = torch.optim.Adam([{'params': optim_params},
-                                                 {'params': hyper_params, 'lr':1e-5, 'weight_decay': 1e-4}],
+                                                 {'params': hyper_params, 'lr':5e-4}],
                                                 **train_opt['optim_g'])
         elif optim_type == 'SGD':
             self.optimizer_g = torch.optim.SGD(optim_params,
                                                **train_opt['optim_g'])
         elif optim_type == 'AdamW':
             self.optimizer_g = torch.optim.AdamW([{'params': optim_params},
-                                                  {'params': hyper_params, 'lr':1e-5, 'weight_decay': 1e-4}],
+                                                  {'params': hyper_params, 'lr':5e-4}],
                                                 **train_opt['optim_g'])
             pass
         else:
@@ -411,6 +419,14 @@ class CLIPImageRestorationModel(BaseModel):
             if l_style is not None:
                 l_total += l_style
                 loss_dict['l_style'] = l_style
+        if self.cri_embedding:
+            embedding_gt = self.net_g.module.b_encoder(self.gt)
+            embedding_deblur = self.net_g.module.b_encoder(self.output)
+
+            l_embedding = self.cri_embedding(embedding_deblur, embedding_gt)
+            
+            l_total += l_embedding
+            loss_dict['l_embedding'] = l_embedding
 
 
         l_total = l_total + 0. * sum(p.sum() for p in self.net_g.parameters())
