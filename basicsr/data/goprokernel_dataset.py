@@ -7,6 +7,7 @@
 from torch.utils import data as data
 from torchvision.transforms.functional import normalize
 import torch
+import random
 from basicsr.data.data_util import (paired_paths_from_folder,
                                     triplet_paths_from_folder,
                                     paired_paths_from_lmdb,
@@ -183,6 +184,11 @@ class GoProKernelDataset(data.Dataset):
         kernel = kernel[:, :, :H//scale_kernel, :W//scale_kernel]
 
         kernel = self.interpolate_kernel(kernel)
+
+        if self.opt['use_sharp']: #self.opt['phase'] == 'train' and
+            if random.random() < 0.1:
+                img_lq = img_gt
+                kernel = torch.zeros_like(kernel)
 
         kernel = kernel + 1e-4*torch.randn(kernel.shape)
 

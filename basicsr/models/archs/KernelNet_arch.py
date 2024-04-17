@@ -738,8 +738,15 @@ class BlurCLIP(nn.Module):
         
         #self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
         #self.logit_scale_internal = nn.Parameter(torch.ones([]), requires_grad=True) #* np.log(1 / 0.28))
-        self.logit_scale = nn.Parameter(torch.ones([]) *np.log(8.28), requires_grad=False)
-        self.logit_scale_internal = nn.Parameter(torch.ones([]) * np.log(2.70), requires_grad=False) #* np.log(1 / 0.28))
+        
+        #self.logit_scale = nn.Parameter(torch.ones([]) *np.log(8.28), requires_grad=False)
+        #self.logit_scale_internal = nn.Parameter(torch.ones([]) * np.log(2.70), requires_grad=False) #* np.log(1 / 0.28))
+        self.logit_scale = nn.Parameter(torch.ones([]) *np.log(5.0), requires_grad=False)
+        self.logit_scale_internal = self.logit_scale
+
+        #self.logit_scale = nn.Parameter(torch.zeros([]), requires_grad=False)
+        #self.logit_scale_internal = nn.Parameter(torch.zeros([]), requires_grad=False) #* np.log(1 / 0.28))
+
         #import pdb;pdb.set_trace()
         self.downscale = 1
         self.initialize_parameters()
@@ -780,8 +787,8 @@ class BlurCLIP(nn.Module):
         #if torch.sum(torch.isnan(embed_i)) > 0 or torch.sum(torch.isnan(embed_k)) > 0:
 
         # normalize
-        embed_i = embed_i / embed_i.norm(dim=1, keepdim=True)
-        embed_k = embed_k / embed_k.norm(dim=1, keepdim=True)
+        embed_i = embed_i / (embed_i.norm(dim=1, keepdim=True) + 1e-9)
+        embed_k = embed_k / (embed_k.norm(dim=1, keepdim=True) + 1e-9)
         #print('embed image', embed_i.norm(dim=1))
         self._embed_i = embed_i
         logit_scale = self.logit_scale.exp()

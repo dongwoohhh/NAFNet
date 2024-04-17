@@ -345,7 +345,7 @@ class CLIPModel(BaseModel):
         import pdb; pdb.set_trace()
         """
         
-        l_ce_internal = 1e2 * (kernel_loss_internal + image_loss_internal) / 2.0
+        l_ce_internal = (kernel_loss_internal + image_loss_internal) / 2.0
 
         l_total += l_ce_internal
         loss_dict['l_jsd_internal'] = l_ce_internal
@@ -455,9 +455,12 @@ class CLIPModel(BaseModel):
 
             figure.clear()
 
-            positions = torch.tensor([[1,1], [1, 6], [3,3], [6,1], [6,6]])
+            #positions = torch.tensor([[1,1], [1, 6], [3,3], [6,1], [6,6]])
+            positions = torch.tensor([[2,2], [2, 14], [8,8], [13,2], [13,13]])
             n_positions = len(positions)
-            boxes = torch.tensor([[32,32,64,64],[191,32,223,64],[96,96,128,128],[32,191,64,223],[191,191,223,223]])
+            #boxes = torch.tensor([[32,32,64,64],[191,32,223,64],[96,96,128,128],[32,191,64,223],[191,191,223,223]])
+
+            boxes = torch.tensor([[64,64,96,96],[416,64,448,96],[256,256,288,288],[64,416,96,448],[416,416,448,448]])
 
             kernel_pixel_corner = kernel_pixel.cpu()[:, positions[:,0],positions[:,1]]
             # gt
