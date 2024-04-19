@@ -262,7 +262,7 @@ class NAFBlockModulated(nn.Module):
 
         norm_w = torch.norm(norm_w, dim=(2, 3), keepdim=True)
         
-        w = w / norm_w
+        w = w / (norm_w+1e-9)
 
         return w
 
@@ -602,6 +602,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.ending = nn.Conv2d(in_channels=width, out_channels=img_channel, kernel_size=3, padding=1, stride=1, groups=1,
                               bias=True)
 
+        self.levels = len(enc_blk_nums)
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         self.middle_blks = nn.ModuleList()
@@ -673,43 +674,66 @@ class NAFNetBlurCLIP(nn.Module):
         print(f"##### HYPERNETWORK PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params)}")
         """
         n_params= 0
-        n_params0 = 0
-        n_params1 = 0
-        n_params2 = 0
-        n_params3 = 0  
+        n_params_encoder0 = 0
+        n_params_encoder1 = 0
+        n_params_encoder2 = 0
+        n_params_encoder3 = 0
+
+        n_params_decoder0 = 0
+        n_params_decoder1 = 0
+        n_params_decoder2 = 0
+        n_params_decoder3 = 0
+
         #name.startswith('decoders.0') or
         #or name.endswith('bias'))
+        #or name.startswith('encoders.3')
+        #
         for name, param in self.named_parameters(): 
-            if (name.startswith('decoders.0') or name.startswith('decoders.1') or name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+            if ((name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2') or \
+                 name.startswith('decoders.0') or name.startswith('decoders.1') or name.startswith('decoders.2') or name.startswith('decoders.3')) and \
                 (name.endswith('weight')) and \
-                    name.find('conv')>0 and name.find('b_encoder')<0:
+                    name.find('conv')>0 and name.find('b_encoder')<0):
                 dims=[-1]
                 #dims.extend(list(param.shape))
-                dims.extend(list([1, param.shape[1],1,1]))
                 #print(name, param.shape)
+                dims.extend(list([1, param.shape[1],1,1]))
                 #self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
                 self.conv_params_dict[name] = {'n_elements': param.shape[1], 'shape':dims}
                 #print(self.conv_params_dict[name])
                 #n_params = n_params+param.nelement()
-                n_params = n_params+param.shape[0]
+                n_params = n_params+param.shape[1]
                 
                 if name.startswith('decoders.0'):
                     #n_params0 += param.nelement()
-                    n_params0 = n_params0+param.shape[1]
+                    n_params_decoder0 += param.shape[1]
                 if name.startswith('decoders.1'):
                     #n_params1 += param.nelement()
-                    n_params1 = n_params1+param.shape[1]
+                    n_params_decoder1 += param.shape[1]
                 if name.startswith('decoders.2'):
                     #n_params2 += param.nelement()
-                    n_params2 = n_params2+param.shape[1]
+                    n_params_decoder2 += param.shape[1]
                 if name.startswith('decoders.3'):
                     #n_params3 += param.nelement()
-                    n_params3 = n_params3+param.shape[1]
-
-        print(f"##### DECODER PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params3)} {str(n_params)}")
-
-        #self.mlp_res_block1 = ResMLPModule(256)
-        #self.mlp_res_block2 = ResMLPModule(256)
+                    n_params_decoder3 += param.shape[1]
+                
+                if name.startswith('encoders.0'):
+                    #n_params0 += param.nelement()
+                    n_params_encoder0 += param.shape[1]
+                if name.startswith('encoders.1'):
+                    #n_params1 += param.nelement()
+                    n_params_encoder1 += param.shape[1]
+                if name.startswith('encoders.2'):
+                    #n_params2 += param.nelement()
+                    n_params_encoder2 += param.shape[1]
+                if name.startswith('encoders.3'):
+                    #n_params3 += param.nelement()
+                    n_params_encoder3 += param.shape[1]
+                
+        print(f"##### ENCODER PARAMS #{str(n_params_encoder0)}, {str(n_params_encoder1)}, {str(n_params_encoder2)}, {str(n_params_encoder3)}")
+        print(f"##### DECODER PARAMS #{str(n_params_decoder0)}, {str(n_params_decoder1)}, {str(n_params_decoder2)}, {str(n_params_decoder3)} {str(n_params)}")
+        #import pdb; pdb.set_trace()
+        self.mlp_res_block1 = ResMLPModule(512)
+        self.mlp_res_block2 = ResMLPModule(512)
         
         #self.fc_hyper1 = nn.Linear(128, 256)
         #self.fc_hyper2_0 = nn.Linear(256, 512)
@@ -733,28 +757,26 @@ class NAFNetBlurCLIP(nn.Module):
         self.norm3 = nn.LayerNorm(512)
 
         # re-build Encoders.
-        """
-        self.n_hyper = 3
+        
+        self.n_hyper_encoder = 3
         chan = width
         self.encoders_hyper = nn.ModuleList()
         for i, num in enumerate(enc_blk_nums):
-            if i < self.n_hyper:
+            if i < self.n_hyper_encoder:
                 assert num == 1
                 self.encoders_hyper.append(
-                    NAFBlockHyper(chan)
+                    NAFBlockModulated(chan)
                 )
                 
                 self.encoders.pop(0)
             chan = chan * 2
-        """
-        self.n_hyper = 3
-        chan = chan_middle
-
+        #chan = chan_middle
+        self.n_hyper_decoder = 4
         self.decoders_hyper = nn.ModuleList()
         count = 0
         for i, num in enumerate(dec_blk_nums):
             chan = chan //2
-            if i < len(dec_blk_nums) - self.n_hyper:
+            if i < len(dec_blk_nums) - self.n_hyper_decoder:
                 continue
             else:
                 assert num == 1
@@ -763,7 +785,7 @@ class NAFNetBlurCLIP(nn.Module):
                 )
                 self.decoders.pop(i-count)
                 count=count+1
-
+        #import pdb; pdb.set_trace()
         #for name, param in self.named_parameters(): 
             #if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
             #    (name.endswith('weight') or name.endswith('bias')) and \
@@ -811,11 +833,14 @@ class NAFNetBlurCLIP(nn.Module):
         self.b_encoder.eval()
         embedding = self.b_encoder(inp)
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
+        #embedding = 2.877 * embedding
 
         embedding = Rearrange('b c h w -> b h w c')(embedding)
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
+        x_hyper = self.mlp_res_block1(x_hyper)
+        x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = self.fc_hyper5(x_hyper)
 
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
@@ -838,12 +863,13 @@ class NAFNetBlurCLIP(nn.Module):
         weights_and_biases = self.parse_weights_and_biases(x_hyper)
 
         encs = []
-        """
         for i, down in enumerate(self.downs):
-            if i<self.n_hyper:
-                x = self.encoders_hyper[i](x, weights_and_biases[i])
+            if i<self.n_hyper_encoder:
+                #print(f'hyper {i}')
+                x = self.encoders_hyper[i](x, weights_and_biases['encoders'][i])
             else:
-                x = self.encoders[i-self.n_hyper](x)
+                #print(f'default {i-self.n_hyper_encoder}')
+                x = self.encoders[i-self.n_hyper_encoder](x)
             encs.append(x)
             x = down(x)    
         """
@@ -851,7 +877,7 @@ class NAFNetBlurCLIP(nn.Module):
             x = encoder(x)
             encs.append(x)
             x = down(x)
-        
+        """
         x = self.middle_blks(x)
         """
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
@@ -862,7 +888,7 @@ class NAFNetBlurCLIP(nn.Module):
         #for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
         encs_reverse = encs[::-1]
         count=0
-        n_vanilla = len(self.ups)-self.n_hyper
+        n_vanilla = len(self.ups)-self.n_hyper_decoder
         for i, up in enumerate(self.ups):
             x = up(x)
             x = x + encs_reverse[i]
@@ -870,10 +896,10 @@ class NAFNetBlurCLIP(nn.Module):
                 #print(f'default {i}')
                 x = self.decoders[i](x)
             else:
-                #print(f'hyper {i-self.n_hyper}')
-                x = self.decoders_hyper[count](x, weights_and_biases[n_vanilla+count])
+                #print(f'hyper {n_vanilla+count}')
+                x = self.decoders_hyper[count](x, weights_and_biases['decoders'][n_vanilla+count])
                 count+=1
-        
+
         x = self.ending(x)
         x = x + inp
 
@@ -881,20 +907,21 @@ class NAFNetBlurCLIP(nn.Module):
     
     def parse_weights_and_biases(self, x):
         B, _, H, W = x.shape
-        weights_and_biases = [{} for _ in range(len(self.encoders))]
+        weights_and_biases = {'encoders':[{} for _ in range(self.levels)],
+                              'decoders':[{} for _ in range(self.levels)]}
+        
         
         start = 0
         for k, v in self.conv_params_dict.items():
-            _, i_block, i_layer, name_conv, name_param = k.split('.')
+            name_module, i_block, i_layer, name_conv, name_param = k.split('.')
             n = v['n_elements']
             #in_plane, out_plane, kH, kW = v['shape']
             end = start + n
-            if name_conv not in weights_and_biases[int(i_block)]:
-                weights_and_biases[int(i_block)][name_conv] = {'weight': None, 'bias': None}
+            if name_conv not in weights_and_biases[name_module][int(i_block)]:
+                weights_and_biases[name_module][int(i_block)][name_conv] = {'weight': None, 'bias': None}
             shape = v['shape'] + [H, W]
-
             #weights_and_biases[int(i_block)][name_conv][name_param] = x[..., start:end].reshape(v['shape'])
-            weights_and_biases[int(i_block)][name_conv][name_param] = x[:, start:end].reshape(shape)
+            weights_and_biases[name_module][int(i_block)][name_conv][name_param] = x[:, start:end].reshape(shape)
             
             start=end
         return weights_and_biases
