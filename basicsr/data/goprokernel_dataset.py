@@ -186,7 +186,7 @@ class GoProKernelDataset(data.Dataset):
         kernel = self.interpolate_kernel(kernel)
 
         if self.opt['use_sharp']: #self.opt['phase'] == 'train' and
-            if random.random() < 0.1:
+            if random.random() < 0.05:
                 img_lq = img_gt
                 kernel = torch.zeros_like(kernel)
 

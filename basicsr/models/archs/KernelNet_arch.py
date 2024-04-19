@@ -741,7 +741,8 @@ class BlurCLIP(nn.Module):
         
         #self.logit_scale = nn.Parameter(torch.ones([]) *np.log(8.28), requires_grad=False)
         #self.logit_scale_internal = nn.Parameter(torch.ones([]) * np.log(2.70), requires_grad=False) #* np.log(1 / 0.28))
-        self.logit_scale = nn.Parameter(torch.ones([]) *np.log(5.0), requires_grad=False)
+        #self.logit_scale = nn.Parameter(torch.ones([]) *np.log(5.0), requires_grad=False)
+        self.logit_scale = nn.Parameter(torch.ones([]) *1., requires_grad=False)
         self.logit_scale_internal = self.logit_scale
 
         #self.logit_scale = nn.Parameter(torch.zeros([]), requires_grad=False)
@@ -766,7 +767,7 @@ class BlurCLIP(nn.Module):
                 if name.endswith("conv3.weight"):
                     nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
                 if name.endswith("conv_out.weight"):
-                   nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                   nn.init.kaiming_normal_(param, mode='fan_in', nonlinearity='relu')
         if isinstance(self.k_encoder, KernelMLPMixerEncoder):
             #for resnet_block in [self.b_encoder.layer1, self.b_encoder.layer2, self.b_encoder.layer3, self.b_encoder.layer4]:
             for name, param in self.k_encoder.named_parameters():
@@ -777,34 +778,51 @@ class BlurCLIP(nn.Module):
                 if name.endswith("mlp_in.weight"):
                     nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
                 if name.endswith("mlp_out.weight"):
-                    nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                    nn.init.kaiming_normal_(param, mode='fan_in', nonlinearity='relu')
     
     
     def forward(self, image, kernel):
         #print(kernel[:, :, :, 0, 0])
         embed_i = self.b_encoder(image)
         embed_k = self.k_encoder(kernel)
+
+        #embed_i = embed_k
         #if torch.sum(torch.isnan(embed_i)) > 0 or torch.sum(torch.isnan(embed_k)) > 0:
 
         # normalize
-        embed_i = embed_i / (embed_i.norm(dim=1, keepdim=True) + 1e-9)
-        embed_k = embed_k / (embed_k.norm(dim=1, keepdim=True) + 1e-9)
+        #embed_i = embed_i / (embed_i.norm(dim=1, keepdim=True) + 1e-9)
+        #embed_k = embed_k / (embed_k.norm(dim=1, keepdim=True) + 1e-9)
         #print('embed image', embed_i.norm(dim=1))
         self._embed_i = embed_i
-        logit_scale = self.logit_scale.exp()
+        #logit_scale = self.logit_scale
         
 
         embed_i_internal = embed_i[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
         embed_k_internal = embed_k[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
 
         embed_i_internal = Rearrange('b k h w -> b (h w) k')(embed_i_internal)
-        embed_k_internal = Rearrange('b k h w -> b k (h w)')(embed_k_internal)
+        embed_k_internal = Rearrange('b k h w -> b (h w) k')(embed_k_internal)
         
-        """
-        logits_debug_k = logit_scale * torch.matmul(embed_k_internal.transpose(-1, -2), embed_k_internal)
-        logits_debug_i = logit_scale * torch.matmul(embed_i_internal, embed_i_internal.transpose(-1, -2))
+        embed_i_internal = embed_i_internal.unsqueeze(1)
+        embed_k_internal = embed_k_internal.unsqueeze(2)
+
+        dist_internal = self.logit_scale * torch.norm(embed_i_internal - embed_k_internal, dim=-1)
+
+        embed_i = Rearrange('b k h w -> h w b k')(embed_i)
+        embed_k = Rearrange('b k h w -> h w b k')(embed_k)
+
+        embed_i = embed_i.unsqueeze(2)
+        embed_k = embed_k.unsqueeze(3)
+
+        dist = self.logit_scale * torch.norm(embed_i - embed_k, dim=-1)
+
+        return dist, dist_internal
+        
         import pdb; pdb.set_trace()
-        """
+
+
+        embed_i_internal = Rearrange('b k h w -> b (h w) k')(embed_i_internal)
+        embed_k_internal = Rearrange('b k h w -> b k (h w)')(embed_k_internal)
 
         logits_per_image_internal = self.logit_scale_internal * torch.matmul(embed_i_internal, embed_k_internal)
         logits_per_kernel_internal = logits_per_image_internal.transpose(-1, -2)
