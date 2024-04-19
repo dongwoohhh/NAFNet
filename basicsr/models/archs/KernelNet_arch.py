@@ -660,7 +660,7 @@ class BlurEncoder(nn.Module):
         super().__init__()
         self.output_dim = output_dim
         #self.input_resolution = input_resolution
-
+        self.n_levels = len(layers)
         # the 3-layer stem
         self.conv1 = nn.Conv2d(3, width // 2, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(width // 2)
@@ -678,9 +678,13 @@ class BlurEncoder(nn.Module):
         self.layer1 = self._make_layer(width, layers[0])
         self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
         self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
-        self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
-
-        self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
+        if self.n_levels ==4:
+            self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
+            self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
+        if self.n_levels ==3:
+            #self.layer4 = nn.Identity()
+            self.layer4 = nn.AvgPool2d(2)
+            self.conv_out = nn.Conv2d(width * 16, output_dim, 1, padding=0, bias=False)
         #embed_dim = width * 32  # the ResNet feature dimension
         #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
         #self.attnpool = AttentionPool2d(input_resolution // 32, output_dim, heads, output_dim)
@@ -719,6 +723,7 @@ class BlurEncoder(nn.Module):
 
 class BlurCLIP(nn.Module):
     def __init__(self,
+                 img_size=256,
                  kernel_size=61,
                  vision_layers=[3,4,6,3],
                  kernel_layers=2,
@@ -734,8 +739,7 @@ class BlurCLIP(nn.Module):
         self.k_encoder = KernelMLPMixerEncoder(kernel_size=kernel_size, output_dim=embed_dim, token_dim=128, channel_dim=128, depth=kernel_layers)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
-        #self.b_encoder = SwinTransformerV2(img_size=256, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers,drop_path_rate=0.1)
-        
+        #self.b_encoder = SwinTransformerV2(img_size=img_size, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers, drop_path_rate=0.1)
         #self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
         #self.logit_scale_internal = nn.Parameter(torch.ones([]), requires_grad=True) #* np.log(1 / 0.28))
         
@@ -794,6 +798,7 @@ class BlurCLIP(nn.Module):
         #embed_k = embed_k / (embed_k.norm(dim=1, keepdim=True) + 1e-9)
         #print('embed image', embed_i.norm(dim=1))
         self._embed_i = embed_i
+        self._embed_k = embed_k
         #logit_scale = self.logit_scale
         
 

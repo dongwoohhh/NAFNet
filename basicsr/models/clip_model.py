@@ -455,7 +455,18 @@ class CLIPModel(BaseModel):
             pdist_center = pdist_kernel[:, :, n_kernels//2, n_kernels//2]
 
             pdist_kernel = Rearrange('b1 b2 k1 k2 -> k1 k2 b1 b2')(pdist_kernel)
+            
+            """
+            if idx == 21:
+                embed_i = self.net_g.module._embed_i
+                embed_k = self.net_g.module._embed_k
 
+                embed_i = embed_i.unsqueeze(1)
+                embed_k = embed_k.unsqueeze(2)
+
+                import pdb; pdb.set_trace()
+            """
+            
             l_mse = self.cri_embed(self.output, pdist_kernel)
 
             self.metric_results['l_mse'] += l_mse
