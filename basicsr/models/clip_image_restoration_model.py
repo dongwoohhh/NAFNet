@@ -446,7 +446,7 @@ class CLIPImageRestorationModel(BaseModel):
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
-        if current_iter >= self.opt['train'].get('start_hyper_iter') and len(self.optimizer_g.parameter_groups)==1:
+        if current_iter >= self.opt['train'].get('start_hyper_iter') and len(self.optimizer_g.param_groups)==1:
             self.optimizer_g.add_param_group({'params': self.hyper_params, 'lr':self.lr_hyper})
 
         #    self.net_g.module.fc_hyper5.weight.requires_grad = True

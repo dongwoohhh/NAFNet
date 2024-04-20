@@ -884,7 +884,7 @@ class NAFNetBlurCLIP(nn.Module):
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
         x_hyper = F.softplus(x_hyper)
 
-        #print(torch.sum(x_hyper))
+        print(torch.sum(x_hyper))
         """
         x_hyper = self.mlp_res_block1(x_hyper)
         x_hyper = self.mlp_res_block2(x_hyper)
