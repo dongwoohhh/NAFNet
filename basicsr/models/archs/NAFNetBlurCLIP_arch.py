@@ -205,10 +205,10 @@ class NAFBlockModulated(nn.Module):
         dw_channel = c * DW_Expand
         self.dw_channel = dw_channel
         self.c = c
+        """
         #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
         #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        
         
         self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
         self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
@@ -218,12 +218,25 @@ class NAFBlockModulated(nn.Module):
         self.b2 = nn.Parameter(torch.zeros(dw_channel))
         nn.init.kaiming_uniform_(self.w2, mode='fan_in', nonlinearity='relu')
         
-
         self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
         self.b3 = nn.Parameter(torch.zeros(c))
         nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
+        """
+        conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
+        conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+
+        self.w1 = nn.Parameter(conv1.weight.clone(), requires_grad=True)
+        self.b1 = nn.Parameter(conv1.bias.clone(), requires_grad=True)
         
+        self.w2 = nn.Parameter(conv2.weight.clone(), requires_grad=True)
+        self.b2 = nn.Parameter(conv2.bias.clone(), requires_grad=True)
         
+        self.w3 = nn.Parameter(conv3.weight.clone(), requires_grad=True)
+        self.b3 = nn.Parameter(conv3.bias.clone(), requires_grad=True)
+        
+        del conv1, conv2, conv3
+
         # Simplified Channel Attention
         self.sca = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
@@ -235,6 +248,8 @@ class NAFBlockModulated(nn.Module):
         self.sg = SimpleGate()
 
         ffn_channel = FFN_Expand * c
+
+        """
         #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
 
@@ -245,7 +260,17 @@ class NAFBlockModulated(nn.Module):
         self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
         self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
         nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
+        """
+        conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
 
+        self.w4 = nn.Parameter(conv4.weight.clone(), requires_grad=True)
+        self.b4 = nn.Parameter(conv4.bias.clone(), requires_grad=True)
+        
+        self.w5 = nn.Parameter(conv5.weight.clone(), requires_grad=True)
+        self.b5 = nn.Parameter(conv5.bias.clone(), requires_grad=True)
+        
+        del conv4, conv5
 
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
@@ -859,7 +884,7 @@ class NAFNetBlurCLIP(nn.Module):
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
         x_hyper = F.softplus(x_hyper)
 
-        #print(x_hyper)
+        #print(torch.sum(x_hyper))
         """
         x_hyper = self.mlp_res_block1(x_hyper)
         x_hyper = self.mlp_res_block2(x_hyper)
