@@ -84,14 +84,14 @@ class CLIPImageRestorationModel(BaseModel):
     def setup_optimizers(self):
         train_opt = self.opt['train']
         optim_params = []
-        hyper_params = []
+        self.hyper_params = []
         for k, v in self.net_g.named_parameters():
             if v.requires_grad:
         #         if k.startswith('module.offsets') or k.startswith('module.dcns'):
         #             optim_params_lowlr.append(v)
         #         else:
                 if k.find('mlp_res_block')>0 or k.find('fc_hyper')>0:
-                    hyper_params.append(v)
+                    self.hyper_params.append(v)
                 else:
                     optim_params.append(v)
             # else:
@@ -99,18 +99,19 @@ class CLIPImageRestorationModel(BaseModel):
             #     logger.warning(f'Params {k} will not be optimized.')
         # print(optim_params)
         # ratio = 0.1
-
+    
         optim_type = train_opt['optim_g'].pop('type')
+        self.lr_hyper = train_opt['optim_g'].pop('lr_hyper')
         if optim_type == 'Adam':
             self.optimizer_g = torch.optim.Adam([{'params': optim_params},
-                                                 {'params': hyper_params, 'lr':1e-4}], #
+                                                 ], #{'params': hyper_params, 'lr':lr_hyper}
                                                 **train_opt['optim_g'])
         elif optim_type == 'SGD':
             self.optimizer_g = torch.optim.SGD(optim_params,
                                                **train_opt['optim_g'])
         elif optim_type == 'AdamW':
             self.optimizer_g = torch.optim.AdamW([{'params': optim_params},
-                                                  {'params': hyper_params, 'lr':1e-4}], #
+                                                  ], #{'params': hyper_params, 'lr':lr_hyper}
                                                 **train_opt['optim_g'])
             pass
         else:
@@ -386,6 +387,8 @@ class CLIPImageRestorationModel(BaseModel):
         #self.output = preds.to(self.device)
         self.lq = self.origin_lq
     def optimize_parameters(self, current_iter, tb_logger):
+        #print(current_iter, self.net_g.module.fc_hyper5.bias.requires_grad)
+        #import pdb; pdb.set_trace()
         self.optimizer_g.zero_grad()
 
         if self.opt['train'].get('mixup', False):
@@ -420,13 +423,16 @@ class CLIPImageRestorationModel(BaseModel):
                 l_total += l_style
                 loss_dict['l_style'] = l_style
         if self.cri_embedding:
+            embedding_input = self.net_g.module.b_encoder(self.lq)
             embedding_gt = self.net_g.module.b_encoder(self.gt)
             embedding_deblur = self.net_g.module.b_encoder(self.output)
 
+            l_embedding_input = self.cri_embedding(embedding_input, embedding_gt)
             l_embedding = self.cri_embedding(embedding_deblur, embedding_gt)
             
             l_total += l_embedding
             loss_dict['l_embedding'] = l_embedding
+            loss_dict['l_embedding_lq'] = l_embedding_input
 
 
         l_total = l_total + 0. * sum(p.sum() for p in self.net_g.parameters())
@@ -439,6 +445,13 @@ class CLIPImageRestorationModel(BaseModel):
 
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
+
+        if current_iter >= self.opt['train'].get('start_hyper_iter') and len(self.optimizer_g.param_groups)==1:
+            self.optimizer_g.add_param_group({'params': self.hyper_params, 'lr':self.lr_hyper})
+
+        #    self.net_g.module.fc_hyper5.weight.requires_grad = True
+        #    self.net_g.module.fc_hyper5.bias.requires_grad = True
+
 
     def test(self):
         self.net_g.eval()
