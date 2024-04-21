@@ -683,7 +683,7 @@ class BlurEncoder(nn.Module):
             self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
         if self.n_levels ==3:
             #self.layer4 = nn.Identity()
-            self.layer4 = nn.AvgPool2d(2)
+            self.layer4 = nn.MaxPool2d(2)
             self.conv_out = nn.Conv2d(width * 16, output_dim, 1, padding=0, bias=False)
         #embed_dim = width * 32  # the ResNet feature dimension
         #self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)

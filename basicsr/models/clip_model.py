@@ -211,7 +211,7 @@ class CLIPModel(BaseModel):
 
         dist = torch.minimum(dist_forward, dist_backward)
         
-        dist = (dist + dist.transpose(0, 1))/2.
+        #dist = (dist + dist.transpose(0, 1))/2.
 
         return dist
 
