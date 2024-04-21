@@ -794,13 +794,39 @@ class BlurCLIP(nn.Module):
         #if torch.sum(torch.isnan(embed_i)) > 0 or torch.sum(torch.isnan(embed_k)) > 0:
 
         # normalize
-        #embed_i = embed_i / (embed_i.norm(dim=1, keepdim=True) + 1e-9)
-        #embed_k = embed_k / (embed_k.norm(dim=1, keepdim=True) + 1e-9)
+        embed_i = embed_i / (embed_i.norm(dim=1, keepdim=True) + 1e-9)
+        embed_k = embed_k / (embed_k.norm(dim=1, keepdim=True) + 1e-9)
         #print('embed image', embed_i.norm(dim=1))
         self._embed_i = embed_i
         self._embed_k = embed_k
         #logit_scale = self.logit_scale
+        embed_i_internal = embed_i[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
+        embed_k_internal = embed_k[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
+
+        embed_i_internal = Rearrange('b k h w -> b (h w) k')(embed_i_internal)
+        embed_k_internal = Rearrange('b k h w -> b k (h w)')(embed_k_internal)
+
+        #logits_per_image_internal = self.logit_scale_internal * torch.matmul(embed_i_internal, embed_k_internal)
+        logits_per_image_internal =  (1+torch.matmul(embed_i_internal, embed_k_internal)) /2
+        logits_per_kernel_internal = logits_per_image_internal.transpose(-1, -2)
+
+        embed_i = Rearrange('b k h w -> h w b k')(embed_i)
+        embed_k = Rearrange('b k h w -> h w k b')(embed_k)
+
+        #print('embed kernel', embed_k)
+        # cosine similarity as logits.
         
+        #logits_per_image = logit_scale * embed_i @ embed_k.t()
+        #logits_per_kernel = logits_per_image.t()
+        #logits_per_image = self.logit_scale * torch.matmul(embed_i, embed_k)
+        logits_per_image = (1+torch.matmul(embed_i, embed_k))/2
+        logits_per_kernel = logits_per_image.transpose(-1, -2)
+
+        #embed_k = self.kernelnet(kernel)
+        #return embed_i, embed_k
+        #loss = clip_loss(logits_per_kernel)
+        return logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal
+
 
         embed_i_internal = embed_i[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
         embed_k_internal = embed_k[:, :, ::self.downscale, ::self.downscale]#self.downscale//2::self.downscale, self.downscale//2::self.downscale]
@@ -825,28 +851,6 @@ class BlurCLIP(nn.Module):
         
         import pdb; pdb.set_trace()
 
-
-        embed_i_internal = Rearrange('b k h w -> b (h w) k')(embed_i_internal)
-        embed_k_internal = Rearrange('b k h w -> b k (h w)')(embed_k_internal)
-
-        logits_per_image_internal = self.logit_scale_internal * torch.matmul(embed_i_internal, embed_k_internal)
-        logits_per_kernel_internal = logits_per_image_internal.transpose(-1, -2)
-
-        embed_i = Rearrange('b k h w -> h w b k')(embed_i)
-        embed_k = Rearrange('b k h w -> h w k b')(embed_k)
-
-        #print('embed kernel', embed_k)
-        # cosine similarity as logits.
-        
-        #logits_per_image = logit_scale * embed_i @ embed_k.t()
-        #logits_per_kernel = logits_per_image.t()
-        logits_per_image = logit_scale * torch.matmul(embed_i, embed_k)
-        logits_per_kernel = logits_per_image.transpose(-1, -2)
-
-        #embed_k = self.kernelnet(kernel)
-        #return embed_i, embed_k
-        #loss = clip_loss(logits_per_kernel)
-        return logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal
     
 """
 def contrastive_loss(logits: torch.Tensor) -> torch.Tensor:
