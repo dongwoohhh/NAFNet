@@ -731,6 +731,7 @@ class BlurCLIP(nn.Module):
                  embed_dim=128,
                  patch_size=4,
                  window_size=8,
+                 drop_rate=0.1,
                  #vision_layers: Union[Tuple[int, int, int, int], int],
                  #vision_width: int,
                  #vision_patch_size: int,
@@ -742,7 +743,7 @@ class BlurCLIP(nn.Module):
         if image_encoder == 'resnet':
             self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         elif image_encoder == 'swin':
-            self.b_encoder = SwinTransformerV2(img_size=img_size, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers, drop_path_rate=0.1)
+            self.b_encoder = SwinTransformerV2(img_size=img_size, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers, drop_path_rate=drop_rate)
         #self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
         #self.logit_scale_internal = nn.Parameter(torch.ones([]), requires_grad=True) #* np.log(1 / 0.28))
         
