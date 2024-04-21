@@ -870,7 +870,7 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.b_encoder.eval()
         embedding = self.b_encoder(inp)
-        embedding = embedding / embedding.norm(dim=1, keepdim=True)
+        #embedding = embedding / embedding.norm(dim=1, keepdim=True)
         #embedding = 2.877 * embedding
 
         embedding = Rearrange('b c h w -> b h w c')(embedding)
@@ -884,7 +884,7 @@ class NAFNetBlurCLIP(nn.Module):
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
         x_hyper = F.softplus(x_hyper)
 
-        print(torch.sum(x_hyper))
+        #print(torch.sum(x_hyper))
         """
         x_hyper = self.mlp_res_block1(x_hyper)
         x_hyper = self.mlp_res_block2(x_hyper)

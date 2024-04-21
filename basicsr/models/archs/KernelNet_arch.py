@@ -725,6 +725,7 @@ class BlurCLIP(nn.Module):
     def __init__(self,
                  img_size=256,
                  kernel_size=61,
+                 image_encoder='resnet',
                  vision_layers=[3,4,6,3],
                  kernel_layers=2,
                  embed_dim=128,
@@ -738,8 +739,10 @@ class BlurCLIP(nn.Module):
 
         self.k_encoder = KernelMLPMixerEncoder(kernel_size=kernel_size, output_dim=embed_dim, token_dim=128, channel_dim=128, depth=kernel_layers)
         #self.k_encoder = KernelAttentionEncoder(inner_dim=32, output_dim=128, depth=2, heads=4)
-        self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
-        #self.b_encoder = SwinTransformerV2(img_size=img_size, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers, drop_path_rate=0.1)
+        if image_encoder == 'resnet':
+            self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
+        elif image_encoder == 'swin':
+            self.b_encoder = SwinTransformerV2(img_size=img_size, num_classes=embed_dim, patch_size=patch_size, window_size=window_size, depths=vision_layers, drop_path_rate=0.1)
         #self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.10), requires_grad=True)
         #self.logit_scale_internal = nn.Parameter(torch.ones([]), requires_grad=True) #* np.log(1 / 0.28))
         

@@ -553,15 +553,20 @@ class CLIPModel(BaseModel):
 
             figure.clear()
 
-            #positions = torch.tensor([[1,1], [1, 6], [3,3], [6,1], [6,6]])
+            positions = torch.tensor([[1,1], [1,3], [1, 6], [3,1], [3,3], [3,6], [6,1], [6,3], [6,6]])
+            boxes = torch.tensor([[32,32,64,64], [96,32,128,64], [192,32,224,64],
+                                  [32,96,64,128], [96,96,128,128],[192,96,224,128],
+                                  [32,192,64,224],[96,192,128,224], [192,192,224,224]])
+            """
             positions = torch.tensor([[2,2], [2,8], [2, 13], [8, 2], [8,8], [8,13], [13,2], [13,8], [13,13]])
-            n_positions = len(positions)
-            #boxes = torch.tensor([[32,32,64,64],[191,32,223,64],[96,96,128,128],[32,191,64,223],[191,191,223,223]])
-
             boxes = torch.tensor([[64,64,96,96], [256, 64,288, 96], [416,64,448,96],
                                   [64,256, 96,288], [256,256,288,288], [416, 256, 448, 288],
                                   [64,416,96,448], [256, 416, 288, 448], [416,416,448,448]])
+            """
+            n_positions = len(positions)
+            
 
+            
             kernel_pixel_corner = kernel_pixel.cpu()[:, positions[:,0],positions[:,1]]
             # gt
             kernel_pixel_corner = Rearrange('b np nk d -> np b 1 nk d')(kernel_pixel_corner)

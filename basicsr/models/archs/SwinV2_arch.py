@@ -617,8 +617,8 @@ class SwinTransformerV2(nn.Module):
         for layer in self.layers:
             #print("layers", x.shape)
             x = layer(x)
-        #print("layers", x.shape)
-        
+        #print("layers_out", x.shape)
+        #import pdb; pdb.set_trace()
         x = self.norm(x)  # B L C
         #x = self.avgpool(x.transpose(1, 2))  # B C 1
         #x = torch.flatten(x, 1)
@@ -630,6 +630,7 @@ class SwinTransformerV2(nn.Module):
         x = self.head(x)
 
         x = Rearrange('b (h w) c -> b c h w', h=self.feature_size, w=self.feature_size)(x)
+
         return x
 
     def flops(self):
