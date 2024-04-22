@@ -199,43 +199,22 @@ class NAFBlockHyper(nn.Module):
 
 
 class NAFBlockModulated(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
+    def __init__(self, c, NAFBlock=None, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
         super().__init__()
 
         dw_channel = c * DW_Expand
         self.dw_channel = dw_channel
         self.c = c
-        """
-        #self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        #self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
-        #self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         
-        self.w1 = nn.Parameter(torch.randn(dw_channel, c, 1, 1), requires_grad=True)
-        self.b1 = nn.Parameter(torch.zeros(dw_channel), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w1, mode='fan_in', nonlinearity='relu')
+        self.w1 = nn.Parameter(NAFBlock.conv1.weight.clone(), requires_grad=False)
+        self.b1 = nn.Parameter(NAFBlock.conv1.bias.clone(), requires_grad=False)
         
-        self.w2 = nn.Parameter(torch.randn(dw_channel, 1, 3, 3), requires_grad=True)
-        self.b2 = nn.Parameter(torch.zeros(dw_channel))
-        nn.init.kaiming_uniform_(self.w2, mode='fan_in', nonlinearity='relu')
+        self.w2 = nn.Parameter(NAFBlock.conv2.weight.clone(), requires_grad=False)
+        self.b2 = nn.Parameter(NAFBlock.conv2.bias.clone(), requires_grad=False)
         
-        self.w3 = nn.Parameter(torch.randn(c, dw_channel//2, 1, 1), requires_grad=True)
-        self.b3 = nn.Parameter(torch.zeros(c))
-        nn.init.kaiming_uniform_(self.w3, mode='fan_in', nonlinearity='relu')
-        """
-        conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel, bias=True)
-        conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-
-        self.w1 = nn.Parameter(conv1.weight.clone(), requires_grad=True)
-        self.b1 = nn.Parameter(conv1.bias.clone(), requires_grad=True)
+        self.w3 = nn.Parameter(NAFBlock.conv3.weight.clone(), requires_grad=False)
+        self.b3 = nn.Parameter(NAFBlock.conv3.bias.clone(), requires_grad=False)
         
-        self.w2 = nn.Parameter(conv2.weight.clone(), requires_grad=True)
-        self.b2 = nn.Parameter(conv2.bias.clone(), requires_grad=True)
-        
-        self.w3 = nn.Parameter(conv3.weight.clone(), requires_grad=True)
-        self.b3 = nn.Parameter(conv3.bias.clone(), requires_grad=True)
-        
-        del conv1, conv2, conv3
 
         # Simplified Channel Attention
         self.sca = nn.Sequential(
@@ -243,44 +222,35 @@ class NAFBlockModulated(nn.Module):
             nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
                       groups=1, bias=True),
         )
-
+        
+        self.sca[1].weight = NAFBlock.sca[1].weight
+        self.sca[1].bias = NAFBlock.sca[1].bias
+        
         # SimpleGate
         self.sg = SimpleGate()
 
         ffn_channel = FFN_Expand * c
 
-        """
-        #self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        #self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-
-        self.w4 = nn.Parameter(torch.randn(ffn_channel, c, 1, 1), requires_grad=True)
-        self.b4 = nn.Parameter(torch.zeros(ffn_channel), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w4, mode='fan_in', nonlinearity='relu')
+        self.w4 = nn.Parameter(NAFBlock.conv4.weight.clone(), requires_grad=False)
+        self.b4 = nn.Parameter(NAFBlock.conv4.bias.clone(), requires_grad=False)
         
-        self.w5 = nn.Parameter(torch.randn(c, ffn_channel//2, 1, 1), requires_grad=True)
-        self.b5 = nn.Parameter(torch.zeros(c), requires_grad=True)
-        nn.init.kaiming_uniform_(self.w5, mode='fan_in', nonlinearity='relu')
-        """
-        conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-        conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
-
-        self.w4 = nn.Parameter(conv4.weight.clone(), requires_grad=True)
-        self.b4 = nn.Parameter(conv4.bias.clone(), requires_grad=True)
+        self.w5 = nn.Parameter(NAFBlock.conv5.weight.clone(), requires_grad=False)
+        self.b5 = nn.Parameter(NAFBlock.conv5.bias.clone(), requires_grad=False)
         
-        self.w5 = nn.Parameter(conv5.weight.clone(), requires_grad=True)
-        self.b5 = nn.Parameter(conv5.bias.clone(), requires_grad=True)
-        
-        del conv4, conv5
-
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
+
+        self.norm1.weight = NAFBlock.norm1.weight
+        self.norm1.bias = NAFBlock.norm1.bias
+
+        self.norm2.weight = NAFBlock.norm2.weight
+        self.norm2.bias = NAFBlock.norm2.bias
 
         self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
         self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
 
-        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-
+        self.beta = nn.Parameter(NAFBlock.beta, requires_grad=False)
+        self.gamma = nn.Parameter(NAFBlock.gamma, requires_grad=False)
 
     def normalize_weights(self, w):
         norm_w = Rearrange('b co ci kh kw wh ww-> b co ci (kh kw) 1 wh ww')(w)
@@ -619,7 +589,7 @@ class ResMLPModule(nn.Module):
 
 class NAFNetBlurCLIP(nn.Module):
 
-    def __init__(self, pretrained_clip_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128):
+    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128):
         super().__init__()
 
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -633,10 +603,6 @@ class NAFNetBlurCLIP(nn.Module):
         self.middle_blks = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
-
-        self.pretrained_clip_dir = pretrained_clip_dir
-        self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
-        self.load_pretrained_blurclip_parameters()
 
         chan = width
         for num in enc_blk_nums:
@@ -671,6 +637,14 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.padder_size = max(2 ** len(self.encoders), 32)
 
+        
+        self.pretrained_nafnet_dir = pretrained_nafnet_dir
+        self.pretrained_clip_dir = pretrained_clip_dir
+        
+        self.load_pretrained_nafnet_parameters()
+        self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
+        self.load_pretrained_blurclip_parameters()
+        
         self.conv_params_dict = OrderedDict()
         """
         n_params= 0
@@ -756,8 +730,8 @@ class NAFNetBlurCLIP(nn.Module):
         print(f"##### ENCODER PARAMS #{str(n_params_encoder0)}, {str(n_params_encoder1)}, {str(n_params_encoder2)}, {str(n_params_encoder3)}")
         print(f"##### DECODER PARAMS #{str(n_params_decoder0)}, {str(n_params_decoder1)}, {str(n_params_decoder2)}, {str(n_params_decoder3)} {str(n_params)}")
         #import pdb; pdb.set_trace()
-        self.mlp_res_block1 = ResMLPModule(512)
-        self.mlp_res_block2 = ResMLPModule(512)
+        #self.mlp_res_block1 = ResMLPModule(512)
+        #self.mlp_res_block2 = ResMLPModule(512)
         
         #self.fc_hyper1 = nn.Linear(128, 256)
         #self.fc_hyper2_0 = nn.Linear(256, 512)
@@ -788,13 +762,13 @@ class NAFNetBlurCLIP(nn.Module):
 
         # re-build Encoders.
         
-        self.n_hyper_encoder = 4
+        self.n_hyper_encoder = 0
         chan = width
         self.encoders_hyper = nn.ModuleList()
         for i, num in enumerate(enc_blk_nums):
             if i < self.n_hyper_encoder:
                 self.encoders_hyper.append(
-                    NAFBlockModulated(chan)
+                    NAFBlockModulated(chan, self.encoders[0][0])
                 )
                 """
                     nn.Sequential(
@@ -823,37 +797,37 @@ class NAFNetBlurCLIP(nn.Module):
                 )
                 self.decoders.pop(i-count)
                 count=count+1
-        #import pdb; pdb.set_trace()
-        #for name, param in self.named_parameters(): 
-            #if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
-            #    (name.endswith('weight') or name.endswith('bias')) and \
-            #        name.find('conv')>0 and name.find('b_encoder')<0:
-        #    print(name, param.shape)
-        #import pdb; pdb.set_trace()
         
-        #for name, param in self.b_encoder.named_parameters():
+        #self.load_pretrained_nafnet_parameters()
 
     def load_pretrained_blurclip_parameters(self):
         pretrained_dict = torch.load(self.pretrained_clip_dir)
-
+        
+        #print(pretrained_dict['params']['b_encoder.layer4.2.conv1.weight'])
+        
         model_dict = self.b_encoder.state_dict()
         prefix = 'b_encoder.'
         
         pretrained_dict_tight = {}
         count = 0
+
         for k, v in pretrained_dict['params'].items():
             if k.startswith(prefix) and k[len(prefix):] in model_dict:
                 count += 1
                 pretrained_dict_tight[k[len(prefix):]] = v
+                
         print(f"##### SUCESSFULLY LOADED #{str(count)} CLIP IMAGE ENCODER PARAMS")
         model_dict.update(pretrained_dict_tight)
         
         self.b_encoder.load_state_dict(model_dict)
+
         count = 0
         for name, param in self.b_encoder.named_parameters():
             #if name in pretrained_dict_tight:
+            #print(name, torch.sum(param-pretrained_dict['params'][prefix+name]))
             count+=1
             param.requires_grad = False
+        #import pdb; pdb.set_trace()
         print(f"##### SUCESSFULLY FREEZE #{str(count)} CLIP IMAGE ENCODER PARAMS")
         """
         for name, param in self.b_encoder.named_parameters(): 
@@ -861,6 +835,33 @@ class NAFNetBlurCLIP(nn.Module):
                 print(name)
         import pdb; pdb.set_trace()
         """
+        #del pretrained_dict, pretrained_dict_tight
+
+
+    def load_pretrained_nafnet_parameters(self, requires_grad=False):
+        pretrained_dict = torch.load(self.pretrained_nafnet_dir)
+        
+        model_dict = self.state_dict()
+        model_dict.update(pretrained_dict)
+        
+        #self.load_state_dict(model_dict)
+        
+        for k, v in self.named_parameters():
+            self.state_dict()[k].copy_(pretrained_dict['params'][k])
+            #self.state_dict()[k].requires_grad = requires_grad
+            #v = pretrained_dict['params'][k]
+            v.requires_grad = requires_grad
+        """
+        print('###')
+        print(torch.sum(pretrained_dict['params']['downs.0.weight']-self.downs[0].weight))
+        for k, v in self.named_parameters():
+            print(k, v.requires_grad, torch.sum(pretrained_dict['params'][k]-v))
+        """
+        
+        #del pretrained_dict
+        #if k.startswith(prefix) and k[len(prefix):] in model_dict:
+                
+        
 
     def forward(self, inp):
         B, C, H, W = inp.shape
@@ -877,8 +878,8 @@ class NAFNetBlurCLIP(nn.Module):
         
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
-        x_hyper = self.mlp_res_block1(x_hyper)
-        x_hyper = self.mlp_res_block2(x_hyper)
+        #x_hyper = self.mlp_res_block1(x_hyper)
+        #x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = self.fc_hyper5(x_hyper)
 
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
