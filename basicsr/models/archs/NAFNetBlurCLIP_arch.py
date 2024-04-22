@@ -199,21 +199,21 @@ class NAFBlockHyper(nn.Module):
 
 
 class NAFBlockModulated(nn.Module):
-    def __init__(self, c, NAFBlock=None, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
+    def __init__(self, c, NAFBlock=None, requires_grad=True, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
         super().__init__()
 
         dw_channel = c * DW_Expand
         self.dw_channel = dw_channel
         self.c = c
         
-        self.w1 = nn.Parameter(NAFBlock.conv1.weight.clone(), requires_grad=False)
-        self.b1 = nn.Parameter(NAFBlock.conv1.bias.clone(), requires_grad=False)
+        self.w1 = nn.Parameter(NAFBlock.conv1.weight.clone(), requires_grad=requires_grad)
+        self.b1 = nn.Parameter(NAFBlock.conv1.bias.clone(), requires_grad=requires_grad)
         
-        self.w2 = nn.Parameter(NAFBlock.conv2.weight.clone(), requires_grad=False)
-        self.b2 = nn.Parameter(NAFBlock.conv2.bias.clone(), requires_grad=False)
+        self.w2 = nn.Parameter(NAFBlock.conv2.weight.clone(), requires_grad=requires_grad)
+        self.b2 = nn.Parameter(NAFBlock.conv2.bias.clone(), requires_grad=requires_grad)
         
-        self.w3 = nn.Parameter(NAFBlock.conv3.weight.clone(), requires_grad=False)
-        self.b3 = nn.Parameter(NAFBlock.conv3.bias.clone(), requires_grad=False)
+        self.w3 = nn.Parameter(NAFBlock.conv3.weight.clone(), requires_grad=requires_grad)
+        self.b3 = nn.Parameter(NAFBlock.conv3.bias.clone(), requires_grad=requires_grad)
         
 
         # Simplified Channel Attention
@@ -231,11 +231,11 @@ class NAFBlockModulated(nn.Module):
 
         ffn_channel = FFN_Expand * c
 
-        self.w4 = nn.Parameter(NAFBlock.conv4.weight.clone(), requires_grad=False)
-        self.b4 = nn.Parameter(NAFBlock.conv4.bias.clone(), requires_grad=False)
+        self.w4 = nn.Parameter(NAFBlock.conv4.weight.clone(), requires_grad=requires_grad)
+        self.b4 = nn.Parameter(NAFBlock.conv4.bias.clone(), requires_grad=requires_grad)
         
-        self.w5 = nn.Parameter(NAFBlock.conv5.weight.clone(), requires_grad=False)
-        self.b5 = nn.Parameter(NAFBlock.conv5.bias.clone(), requires_grad=False)
+        self.w5 = nn.Parameter(NAFBlock.conv5.weight.clone(), requires_grad=requires_grad)
+        self.b5 = nn.Parameter(NAFBlock.conv5.bias.clone(), requires_grad=requires_grad)
         
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
@@ -249,8 +249,8 @@ class NAFBlockModulated(nn.Module):
         self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
         self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
 
-        self.beta = nn.Parameter(NAFBlock.beta, requires_grad=False)
-        self.gamma = nn.Parameter(NAFBlock.gamma, requires_grad=False)
+        self.beta = nn.Parameter(NAFBlock.beta, requires_grad=requires_grad)
+        self.gamma = nn.Parameter(NAFBlock.gamma, requires_grad=requires_grad)
 
     def normalize_weights(self, w):
         norm_w = Rearrange('b co ci kh kw wh ww-> b co ci (kh kw) 1 wh ww')(w)
@@ -413,7 +413,6 @@ class NAFBlockModulated(nn.Module):
 
         #b = Rearrange('b co h w -> b h w co')(b)
         #b = b.reshape(B*wH*wW*Co)
-
 
         x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
         x = x.reshape(B, Ci, patch_H, patch_W, wH, wW)
@@ -589,7 +588,7 @@ class ResMLPModule(nn.Module):
 
 class NAFNetBlurCLIP(nn.Module):
 
-    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128):
+    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128, requires_grad_NAFNet=True):
         super().__init__()
 
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -635,13 +634,15 @@ class NAFNetBlurCLIP(nn.Module):
                 )
             )
 
-        self.padder_size = max(2 ** len(self.encoders), 32)
+        self.padder_size = 2 ** len(self.encoders)
+        #self.padder_size = max(2 ** len(self.encoders), 32)
 
         
         self.pretrained_nafnet_dir = pretrained_nafnet_dir
         self.pretrained_clip_dir = pretrained_clip_dir
         
-        self.load_pretrained_nafnet_parameters()
+
+        self.load_pretrained_nafnet_parameters(requires_grad=requires_grad_NAFNet)
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         self.load_pretrained_blurclip_parameters()
         
@@ -762,13 +763,13 @@ class NAFNetBlurCLIP(nn.Module):
 
         # re-build Encoders.
         
-        self.n_hyper_encoder = 0
+        self.n_hyper_encoder = 4
         chan = width
         self.encoders_hyper = nn.ModuleList()
         for i, num in enumerate(enc_blk_nums):
             if i < self.n_hyper_encoder:
                 self.encoders_hyper.append(
-                    NAFBlockModulated(chan, self.encoders[0][0])
+                    NAFBlockModulated(chan, self.encoders[0][0], requires_grad=requires_grad_NAFNet)
                 )
                 """
                     nn.Sequential(
@@ -869,13 +870,12 @@ class NAFNetBlurCLIP(nn.Module):
 
         x = self.intro(inp)
 
-        self.b_encoder.eval()
         embedding = self.b_encoder(inp)
-        #embedding = embedding / embedding.norm(dim=1, keepdim=True)
+        embedding = embedding / embedding.norm(dim=1, keepdim=True)
         #embedding = 2.877 * embedding
 
         embedding = Rearrange('b c h w -> b h w c')(embedding)
-        
+
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
         #x_hyper = self.mlp_res_block1(x_hyper)
@@ -952,7 +952,7 @@ class NAFNetBlurCLIP(nn.Module):
         x = x + inp
 
         return x[:, :, :H, :W]
-    
+        
     def parse_weights_and_biases(self, x):
         B, _, H, W = x.shape
         weights_and_biases = {'encoders':[{} for _ in range(self.levels)],

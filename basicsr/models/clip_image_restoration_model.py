@@ -30,10 +30,6 @@ class CLIPImageRestorationModel(BaseModel):
         self.net_g = define_network(deepcopy(opt['network_g']))
         self.net_g = self.model_to_device(self.net_g)
 
-        # load pretrained clip model.
-        #load_path_clip = self.opt['network_g'].get('pretrained_clip', True)
-        #import pdb; pdb.set_trace()
-
         # load pretrained models
         load_path = self.opt['path'].get('pretrain_network_g', None)
         if load_path is not None:
@@ -387,8 +383,6 @@ class CLIPImageRestorationModel(BaseModel):
         #self.output = preds.to(self.device)
         self.lq = self.origin_lq
     def optimize_parameters(self, current_iter, tb_logger):
-        #print(current_iter, self.net_g.module.fc_hyper5.bias.requires_grad)
-        #import pdb; pdb.set_trace()
         self.optimizer_g.zero_grad()
 
         if self.opt['train'].get('mixup', False):
