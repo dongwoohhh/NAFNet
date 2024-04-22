@@ -55,8 +55,8 @@ class CLIPModel(BaseModel):
         #self.cri_embed = F.cross_entropy
 
         # define loss
-        #self.cri_embed = loss_module.JSDivergence()
-        self.cri_embed = loss_module.FocalMSELoss()
+        self.cri_embed = loss_module.JSDivergence()
+        #
 
         # set up optimizers and schedulers
         self.setup_optimizers()
@@ -184,8 +184,8 @@ class CLIPModel(BaseModel):
         #kernel_sparse = kernel[:, ::4, ::4]
         B, kH, kW, nK, _ = kernel.shape
         
-        #length_kernel = self.compute_length_kernel(kernel)
-        scale_kernel = 1.0 #16.0
+        length_kernel = self.compute_length_kernel(kernel)
+        #scale_kernel = 1.0 #16.0
 
         kernel_backward = kernel.flip(dims=(-2,))
         
@@ -200,27 +200,20 @@ class CLIPModel(BaseModel):
         dist_backward = torch.sqrt(torch.sum(diff_backward**2, dim=-1)).reshape(B, B, kH, kW, nK)
         
         
-        #dist_forward = dist_forward / (length_kernel[:, None, :, :, None]+1.0)
-        #dist_backward = dist_backward / (length_kernel[:, None, :, :, None]+1.0)
+        dist_forward = dist_forward / (length_kernel[:, None, :, :, None]+1.0)
+        dist_backward = dist_backward / (length_kernel[:, None, :, :, None]+1.0)
 
-        dist_forward = dist_forward / scale_kernel
-        dist_backward = dist_backward / scale_kernel
+        #dist_forward = dist_forward / scale_kernel
+        #dist_backward = dist_backward / scale_kernel
 
         dist_forward = torch.mean(dist_forward, dim=-1)#.mean(-1).mean(-1)
         dist_backward = torch.mean(dist_backward, dim=-1)#.mean(-1).mean(-1)
 
         dist = torch.minimum(dist_forward, dist_backward)
         
-        #dist = (dist + dist.transpose(0, 1))/2.
+        dist = (dist + dist.transpose(0, 1))/2.
 
         return dist
-
-    def convert_pdist_to_similarity(self, dist, scale=0.5):
-        similarity = 1. / (1+dist*scale)
-
-        #similarity = 2*(similarity - 0.5)
-
-        return similarity
 
     def compute_length_kernel(self, kernel):
         delta_xy = kernel[..., :-1, :] - kernel[..., 1:, :]
@@ -280,101 +273,25 @@ class CLIPModel(BaseModel):
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
         
-        #dist, dist_internal = self.net_g(self.lq, self.kernel)
         logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal = self.net_g(self.lq, self.kernel)
 
 
         #if not isinstance(logits_per_kernel, list):
         #    logits_per_kernel = [logits_per_kernel]
-        
-        self.output = logits_per_image
-        
-        
+
+        self.output = logits_per_kernel
+        epsilon = self.opt['train']['epsilon']
         kernel_pixel = self.opt['datasets']['train']['gt_size']*self.kernel
         pdist_kernel = self.compute_pdist(kernel_pixel)
-
-        p_similarity = self.convert_pdist_to_similarity(pdist_kernel)
         
-        """
-        pdist_center = p_similarity[:, :, 8, 8]
-        save_fig_dir = osp.join(f'debug_distance_gt.png')
-        df_cm = pd.DataFrame(pdist_center.cpu().numpy(), index = [i for i in range(8)], columns = [i for i in range(8)])
-        confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
-        figure = confusion.get_figure()
-        figure.savefig(save_fig_dir, dpi=400)
-
-        figure.clear()
-        import pdb; pdb.set_trace()
-        """
-        p_similarity = Rearrange('b1 b2 k1 k2 -> k1 k2 b1 b2')(p_similarity) 
-        image_loss = self.cri_embed(logits_per_image, p_similarity)
-        kernel_loss = self.cri_embed(logits_per_kernel, p_similarity)
-
-        l_mse = (image_loss+kernel_loss) /2.
-
-        l_total = 0
-        loss_dict = OrderedDict()
-
-        l_total += l_mse
-        loss_dict['l_mse'] = l_mse
-
-        k_downscale = self.net_g.module.downscale
-        kernel_pixel_internal = Rearrange('b h w nk d -> (h w) b 1 nk d')(kernel_pixel[:, ::k_downscale, ::k_downscale])# k_downscale//2::k_downscale, k_downscale//2::k_downscale]) #
+        #torch.set_printoptions(precision=3)
+        #prob_kernel = torch.softmax(1/(scale_softmax*pdist_kernel+epsilon), dim=1)
         
-        pdist_internal = self.compute_pdist(kernel_pixel_internal).squeeze(-1)
-        p_similarity_internal = self.convert_pdist_to_similarity(pdist_internal)
-        
-        #import pdb; pdb.set_trace()
-        p_similarity_internal = Rearrange('k1 k2 b -> (b k1) k2')(p_similarity_internal)
-
-        logits_per_kernel_internal = Rearrange('b k1 k2 -> (b k1) k2')(logits_per_kernel_internal)
-        logits_per_image_internal = Rearrange('b k1 k2 -> (b k1) k2')(logits_per_image_internal)
-
-        kernel_loss_internal = self.cri_embed(logits_per_kernel_internal, p_similarity_internal)
-        image_loss_internal = self.cri_embed(logits_per_image_internal, p_similarity_internal)
-        
-        l_mse_internal = (kernel_loss_internal + image_loss_internal) / 2.0
-
-        l_total += l_mse_internal
-        loss_dict['l_mse_internal'] = l_mse_internal
-        
-
-
-        """
-        pdist_kernel = Rearrange('b1 b2 k1 k2 -> k1 k2 b1 b2')(pdist_kernel) 
-        l_mse = self.cri_embed(dist, pdist_kernel)
-
-        l_total = 0
-        loss_dict = OrderedDict()
-
-        l_total += l_mse
-        loss_dict['l_mse'] = l_mse
-
-        # internal
-        k_downscale = self.net_g.module.downscale
-        kernel_pixel_internal = Rearrange('b h w nk d -> (h w) b 1 nk d')(kernel_pixel[:, ::k_downscale, ::k_downscale])# k_downscale//2::k_downscale, k_downscale//2::k_downscale]) #
-        pdist_internal = self.compute_pdist(kernel_pixel_internal).squeeze(-1)
-
-        pdist_internal = Rearrange('k1 k2 b -> (b k1) k2')(pdist_internal)
-        dist_internal = Rearrange('b k1 k2 -> (b k1) k2')(dist_internal)
-        
-        l_mse_internal = self.cri_embed(dist_internal, pdist_internal, weight=torch.ones_like(pdist_internal),)
-        
-        
-        if 1: #current_iter < 1000:
-            l_mse_internal = self.cri_embed(dist_internal, pdist_internal, weight=torch.ones_like(pdist_internal),)
-        else:
-            l_mse_internal = self.cri_embed(dist_internal, pdist_internal, weight=torch.ones_like(pdist_internal), focal=True)
-        
-        l_total += l_mse_internal
-        loss_dict['l_mse_internal'] = l_mse_internal
-        """
-        """
-        epsilon = self.opt['train']['epsilon']
         prob_kernel = torch.softmax(-epsilon*pdist_kernel, dim=1)
         prob_kernel = Rearrange('b1 b2 k1 k2 -> k1 k2 b1 b2')(prob_kernel)
-        
-        
+        #prob_image = torch.softmax(-epsilon*pdist_kernel.)
+        #import pdb; pdb.set_trace()
+        #print(logits_per_kernel)
         l_total = 0
         loss_dict = OrderedDict()
         prob_kernel = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(prob_kernel)
@@ -382,8 +299,6 @@ class CLIPModel(BaseModel):
         logits_per_image = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(logits_per_image)
 
         # cross entropy loss
-        #kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
-        #image_loss = F.cross_entropy(logits_per_image, prob_kernel)
         kernel_loss = self.cri_embed(logits_per_kernel, prob_kernel)
         image_loss = self.cri_embed(logits_per_image, prob_kernel)
 
@@ -391,7 +306,6 @@ class CLIPModel(BaseModel):
         
         l_total += l_ce
         loss_dict['l_jsd'] = l_ce
-        
         # internal
         k_downscale = self.net_g.module.downscale
         kernel_pixel_internal = Rearrange('b h w nk d -> (h w) b 1 nk d')(kernel_pixel[:, ::k_downscale, ::k_downscale])# k_downscale//2::k_downscale, k_downscale//2::k_downscale]) #
@@ -411,13 +325,6 @@ class CLIPModel(BaseModel):
         #image_loss_internal = F.cross_entropy(logits_per_image_internal, prob_internal)
         kernel_loss_internal = self.cri_embed(logits_per_kernel_internal, prob_internal, weighted=True)
         image_loss_internal = self.cri_embed(logits_per_image_internal, prob_internal, weighted=True)
-        
-        l_ce_internal = (kernel_loss_internal + image_loss_internal) / 2.0
-
-        l_total += l_ce_internal
-        loss_dict['l_jsd_internal'] = l_ce_internal
-        """
-        
         """
         save_fig_dir = osp.join(f'debug_confusion_gt.png')
         df_cm = pd.DataFrame(prob_debug.detach().cpu().numpy(), index = [i for i in range(9)], columns = [i for i in range(9)])
@@ -440,7 +347,10 @@ class CLIPModel(BaseModel):
         import pdb; pdb.set_trace()
         """
         
-        
+        l_ce_internal = (kernel_loss_internal + image_loss_internal) / 2.0
+
+        l_total += l_ce_internal
+        loss_dict['l_jsd_internal'] = l_ce_internal
         #loss_dict['l_weight'] = 0.001 * sum(p.sum() for p in self.net_g.parameters())
         l_total = l_total + 0 * sum(p.sum() for p in self.net_g.parameters())
 
@@ -460,8 +370,8 @@ class CLIPModel(BaseModel):
         with torch.no_grad():
             
             logits_per_image, logits_per_kernel, logits_per_image_internal, logits_per_kernel_internal = self.net_g(self.lq, self.kernel)
-            self.output = logits_per_image.detach().cpu()
-            self.output_internal = logits_per_image_internal.detach().cpu()
+            self.output = logits_per_kernel.detach().cpu()
+            self.output_internal = logits_per_kernel_internal.detach().cpu()
         self.net_g.train()
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
@@ -472,7 +382,7 @@ class CLIPModel(BaseModel):
         with_metrics = self.opt['val'].get('metrics') is not None
         if with_metrics:
             self.metric_results = {
-                'l_mse': 0
+                'l_jsd': 0
             }
         
         rank, world_size = get_dist_info()
@@ -493,31 +403,27 @@ class CLIPModel(BaseModel):
 
             self.test()
             kernel_pixel = gt_size*self.kernel
-            pdist_kernel = self.compute_pdist(kernel_pixel).cpu()
+            pdist_kernel = self.compute_pdist(kernel_pixel)
+            #torch.set_printoptions(precision=3)
+            prob_kernel = torch.softmax(-epsilon*pdist_kernel, dim=1).cpu()
+
+            n_kernels = prob_kernel.shape[-1]
+            prob_center = prob_kernel[:, :, n_kernels//2, n_kernels//2]
+
+            prob_kernel = Rearrange('b1 b2 k1 k2 -> k1 k2 b1 b2')(prob_kernel)
             
-            p_similarity = self.convert_pdist_to_similarity(pdist_kernel)
-            #prob_kernel = torch.softmax(-epsilon*pdist_kernel, dim=1).cpu()
+            prob_kernel = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(prob_kernel)
+            logits_per_kernel = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(self.output)
+            logits_per_image = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(self.output.transpose(-1,-2)) 
+    
+            #kernel_loss = F.cross_entropy(logits_per_kernel, prob_kernel)
+            #image_loss = F.cross_entropy(logits_per_image, prob_kernel)
+            kernel_loss = self.cri_embed(logits_per_kernel, prob_kernel)
+            image_loss = self.cri_embed(logits_per_image, prob_kernel)
 
-            n_kernels = pdist_kernel.shape[-1]
-            
-            pdist_center = p_similarity[:, :, n_kernels//2, n_kernels//2]
+            l_jsd = (kernel_loss + image_loss) / 2.0
 
-            p_similarity = Rearrange('b1 b2 k1 k2 -> k1 k2 b1 b2')(p_similarity)
-            
-            """
-            if idx == 21:
-                embed_i = self.net_g.module._embed_i
-                embed_k = self.net_g.module._embed_k
-
-                embed_i = embed_i.unsqueeze(1)
-                embed_k = embed_k.unsqueeze(2)
-
-                import pdb; pdb.set_trace()
-            """
-            
-            l_mse = (self.cri_embed(self.output, p_similarity) + self.cri_embed(self.output.transpose(-1, -2), p_similarity)) / 2
-
-            self.metric_results['l_mse'] += l_mse
+            self.metric_results['l_jsd'] += l_jsd
             
             # visualize
 
@@ -537,8 +443,8 @@ class CLIPModel(BaseModel):
                 
             
             save_fig_dir = osp.join(savedir, f'{str(idx)}_confusion_pred.png')
-            #prob_kernel_pred = F.softmax(self.output[n_kernels//2, n_kernels//2], dim=1).detach().cpu().numpy()
-            df_cm = pd.DataFrame(self.output[n_kernels//2, n_kernels//2], index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
+            prob_kernel_pred = F.softmax(self.output[n_kernels//2, n_kernels//2], dim=1).detach().cpu().numpy()
+            df_cm = pd.DataFrame(prob_kernel_pred, index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
             confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
             figure = confusion.get_figure()
             figure.savefig(save_fig_dir, dpi=400)
@@ -546,13 +452,13 @@ class CLIPModel(BaseModel):
             figure.clear()
 
             save_fig_dir = osp.join(savedir, f'{str(idx)}_confusion_gt.png')
-            df_cm = pd.DataFrame(pdist_center.cpu().numpy(), index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
+            df_cm = pd.DataFrame(prob_center.detach().cpu().numpy(), index = [i for i in range(n_images)], columns = [i for i in range(n_images)])
             confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
             figure = confusion.get_figure()
             figure.savefig(save_fig_dir, dpi=400)
 
             figure.clear()
-
+            """
             positions = torch.tensor([[1,1], [1,3], [1, 6], [3,1], [3,3], [3,6], [6,1], [6,3], [6,6]])
             boxes = torch.tensor([[32,32,64,64], [96,32,128,64], [192,32,224,64],
                                   [32,96,64,128], [96,96,128,128],[192,96,224,128],
@@ -562,34 +468,27 @@ class CLIPModel(BaseModel):
             boxes = torch.tensor([[64,64,96,96], [256, 64,288, 96], [416,64,448,96],
                                   [64,256, 96,288], [256,256,288,288], [416, 256, 448, 288],
                                   [64,416,96,448], [256, 416, 288, 448], [416,416,448,448]])
-            """
+            
             n_positions = len(positions)
-            
 
-            
             kernel_pixel_corner = kernel_pixel.cpu()[:, positions[:,0],positions[:,1]]
             # gt
             kernel_pixel_corner = Rearrange('b np nk d -> np b 1 nk d')(kernel_pixel_corner)
             pdist_corner = self.compute_pdist(kernel_pixel_corner)
-            pdist_corner = self.convert_pdist_to_similarity(pdist_corner)
-
             pdist_corner = Rearrange('n1 n2 b 1 -> b n1 n2')(pdist_corner)
-            
+            prob_kernel = torch.softmax(-epsilon*pdist_corner, dim=1).numpy()
             # pred
             #logits_per_kernel = Rearrange('k1 k2 b1 b2 -> (k1 k2 b1) b2')(self.output)
             #embed_i = self.output_embed_i
             
             embed_corner = self.net_g.module._embed_i.detach().cpu()[:, :, positions[:,0], positions[:, 1]]
-            #logit_scale = self.net_g.module.logit_scale.detach().cpu().item()
-            
-            dist_embed = (1+torch.matmul(embed_corner.transpose(-1,-2), embed_corner))/2
-            #dist_embed = logit_scale * torch.norm(embed_corner.unsqueeze(-1)-embed_corner.unsqueeze(-2), dim=1)
-            
-            
+            logit_scale = self.net_g.module.logit_scale.detach().cpu().item()
+            logit_embed = logit_scale * torch.matmul(embed_corner.transpose(-1,-2), embed_corner)
+            #import pdb; pdb.set_trace()
             #output_internal = 
-            #prob_embed = F.softmax(logit_embed, dim=1).numpy()
+            prob_embed = F.softmax(logit_embed, dim=1).numpy()
             
-            for i_img, prob_i in enumerate(pdist_corner):
+            for i_img, prob_i in enumerate(prob_kernel):
                 save_img_dir = osp.join(savedir, f'Debug_{str(idx)}_{str(i_img)}_images.png')
                 img_i = lq_kernel_clone[i_img]
                 img_i = torchvision.utils.draw_bounding_boxes((255*img_i).byte(),boxes, width=3)
@@ -605,8 +504,8 @@ class CLIPModel(BaseModel):
                 figure.clear()
                 
                 save_fig_dir = osp.join(savedir, f'Debug_{str(idx)}_{str(i_img)}_confusion_pred.png')
-                pdist_pred = dist_embed[i_img]
-                df_cm = pd.DataFrame(pdist_pred, index = [i for i in range(n_positions)], columns = [i for i in range(n_positions)])
+                prob_pred = prob_embed[i_img]
+                df_cm = pd.DataFrame(prob_pred, index = [i for i in range(n_positions)], columns = [i for i in range(n_positions)])
                 confusion = sn.heatmap(df_cm, annot=True, annot_kws={"size": 4})
                 figure = confusion.get_figure()
                 figure.savefig(save_fig_dir, dpi=400)
@@ -620,7 +519,7 @@ class CLIPModel(BaseModel):
                     pbar.update(1)
                     pbar.set_description(f'Test {idx}')
         
-        self.metric_results['l_mse'] /= cnt
+        self.metric_results['l_jsd'] /= cnt
         self._log_validation_metric_values(current_iter, dataloader.dataset.opt['name'],
                                                    tb_logger, self.metric_results)
 
