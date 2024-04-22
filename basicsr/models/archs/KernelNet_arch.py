@@ -662,7 +662,7 @@ class BlurEncoder(nn.Module):
         #self.input_resolution = input_resolution
         self.n_levels = len(layers)
         # the 3-layer stem
-        self.conv1 = nn.Conv2d(3, width // 2, kernel_size=3, stride=2, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, width // 2, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(width // 2)
         self.relu1 = nn.ReLU(inplace=True)
         self.conv2 = nn.Conv2d(width // 2, width // 2, kernel_size=3, padding=1, bias=False)
@@ -679,7 +679,7 @@ class BlurEncoder(nn.Module):
         self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
         self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
         if self.n_levels ==4:
-            self.layer4 = self._make_layer(width * 8, layers[3], stride=1)
+            self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
             self.conv_out = nn.Conv2d(width * 32, output_dim, 1, padding=0, bias=False)
         if self.n_levels ==3:
             #self.layer4 = nn.Identity()

@@ -6,7 +6,7 @@
 # ------------------------------------------------------------------------
 # general settings
 # v2: no pooling embedding.
-name: BlurCLIP_v2_gopro_jsd_res50_focal
+name: BlurCLIP_v2_gopro_jsd_k16
 model_type: CLIPModel
 scale: 1
 
@@ -32,8 +32,9 @@ datasets:
     use_flip: true
     use_rot: true
 
+    use_sharp: true
     kernel_size: 31
-    scale_kernel: 32
+    scale_kernel: 16
 
     # data loader
     use_shuffle: true
@@ -51,9 +52,9 @@ datasets:
 
     gt_size: 256
     kernel_size: 31
-    scale_kernel: 32
+    scale_kernel: 16
     batch_size_per_gpu: 8
-
+    use_sharp: true
     filename_tmpl: '{}'
     io_backend:
       type: disk
@@ -82,10 +83,10 @@ train:
 
   scheduler:
     type: TrueCosineAnnealingLR
-    T_max: 100000
+    T_max: 140000
     eta_min: !!float 1e-7
 
-  total_iter: 200000
+  total_iter: 140000
   warmup_iter: -1 # no warm up
 
   # losses
