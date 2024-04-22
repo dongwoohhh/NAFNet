@@ -641,8 +641,9 @@ class NAFNetBlurCLIP(nn.Module):
         self.pretrained_nafnet_dir = pretrained_nafnet_dir
         self.pretrained_clip_dir = pretrained_clip_dir
         
-
-        self.load_pretrained_nafnet_parameters(requires_grad=requires_grad_NAFNet)
+        if pretrained_nafnet_dir is not None:
+            self.load_pretrained_nafnet_parameters(requires_grad=requires_grad_NAFNet)
+        
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         self.load_pretrained_blurclip_parameters()
         
