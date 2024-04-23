@@ -436,7 +436,7 @@ class NAFBlockModulated(nn.Module):
         x = self.conv3x3_modulated(x, self.w2, self.b2, weights_and_bias['conv2'])
 
         x = self.sg(x)
-        x = x * self.sca(x)
+        #x = x * self.sca(x)
         
         #x = self.conv1x1_group(x, weights_and_bias['conv3'])
         x = self.conv1x1_modulated(x, self.w3, self.b3, weights_and_bias['conv3'])
@@ -457,6 +457,96 @@ class NAFBlockModulated(nn.Module):
 
         x = self.dropout2(x)
         
+        return y + x * self.gamma
+
+
+class NAFBlockKernelAttention(nn.Module):
+    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=512):
+        super().__init__()
+
+        dw_channel = c * DW_Expand
+        self.dw_channel = dw_channel
+        self.c = c
+        
+        self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel,
+                               bias=True)
+        self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+
+        """
+        # Simplified Channel Attention
+        self.sca = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
+                      groups=1, bias=True),
+        )
+        """
+        self.conv_modulation = nn.Conv2d(embed_dim, self.dw_channel//2, kernel_size=1, stride=1, groups=1, bias=True)
+
+        # SimpleGate
+        self.sg = SimpleGate()
+
+        ffn_channel = FFN_Expand * c
+        self.conv4 = nn.Conv2d(in_channels=c, out_channels=ffn_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+        self.conv5 = nn.Conv2d(in_channels=ffn_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
+
+        self.norm1 = LayerNorm2d(c)
+        self.norm2 = LayerNorm2d(c)
+
+        self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+        self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+
+        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def local_modulation(self, x, embedding):
+        modulation = self.conv_modulation(embedding)
+        modulation = F.softplus(modulation)
+        #modulation = modulation.contiguous()
+        #x_debug = x
+        
+        B, C, H, W = x.shape
+        _, _, eH, eW = modulation.shape
+
+        patch_H = H // eH
+        patch_W = W // eW
+        
+        x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
+        x = x.reshape(B, C, patch_H, patch_W, eH, eW)
+        #print(x.shape, modulation[:, :, None, None].shape)
+        x = x * modulation[:, :, None, None]
+        x = Rearrange('b c ph pw eh ew -> b c eh ph ew pw')(x)
+        x = x.reshape(B, C, H, W)
+        
+        #print(torch.allclose(x, x_debug))
+
+        #import pdb; pdb.set_trace()
+        return x
+
+    def forward(self, inp, embedding):
+        x = inp
+
+        x = self.norm1(x)
+
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.sg(x)
+
+        #x = x * self.sca(x)
+        x = self.local_modulation(x, embedding)
+        
+        x = self.conv3(x)
+
+        x = self.dropout1(x)
+
+        y = inp + x * self.beta
+
+        x = self.conv4(self.norm2(y))
+        x = self.sg(x)
+        x = self.conv5(x)
+
+        x = self.dropout2(x)
+
         return y + x * self.gamma
 
 
@@ -518,7 +608,7 @@ class NAFNetBlurCLIP(nn.Module):
         for num in enc_blk_nums:
             self.encoders.append(
                 nn.Sequential(
-                    *[NAFBlock(chan) for _ in range(num)]
+                    *[NAFBlockKernelAttention(chan) for _ in range(num)]
                 )
             )
             self.downs.append(
@@ -528,7 +618,7 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.middle_blks = \
             nn.Sequential(
-                *[NAFBlock(chan) for _ in range(middle_blk_num)]
+                *[NAFBlockKernelAttention(chan) for _ in range(middle_blk_num)]
             )
         chan_middle = chan
         for num in dec_blk_nums:
@@ -541,49 +631,45 @@ class NAFNetBlurCLIP(nn.Module):
             chan = chan // 2
             self.decoders.append(
                 nn.Sequential(
-                    *[NAFBlock(chan) for _ in range(num)]
+                    *[NAFBlockKernelAttention(chan) for _ in range(num)]
                 )
             )
 
         self.padder_size = 2 ** len(self.encoders)
         #self.padder_size = max(2 ** len(self.encoders), 32)
 
-        
+        """
         self.pretrained_nafnet_dir = pretrained_nafnet_dir
-        self.pretrained_clip_dir = pretrained_clip_dir
-        
         if pretrained_nafnet_dir is not None:
             self.load_pretrained_nafnet_parameters(requires_grad=requires_grad_NAFNet)
-        
+        """
+
+
+        self.pretrained_clip_dir = pretrained_clip_dir
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         self.load_pretrained_blurclip_parameters()
         
-        self.conv_params_dict = OrderedDict()
-        """
-        n_params= 0
-        n_params0 = 0
-        n_params1 = 0
-        n_params2 = 0
-        #or name.startswith('encoders.2')
-        #name.startswith('decoders.2') or name.startswith('decoders.3')) and \
+        self.mlp_res_block1 = ResMLPModule(512)
+        #self.mlp_res_block2 = ResMLPModule(512)
         
-        for name, param in self.named_parameters(): 
-            if (name.startswith('encoders.0') or name.startswith('encoders.1') or name.startswith('encoders.2')) and \
-                (name.endswith('weight') or name.endswith('bias')) and \
-                    name.find('conv')>0 and name.find('b_encoder')<0:
-                dims=[-1]
-                dims.extend(list(param.shape))
-                #print(name, param.shape)
-                self.conv_params_dict[name] = {'n_elements': param.nelement(), 'shape':dims}
-                n_params = n_params+param.nelement()
-                
-                if name.startswith('encoders.0'):
-                    n_params0 += param.nelement()
-                if name.startswith('encoders.1'):
-                    n_params1 += param.nelement()
-                if name.startswith('encoders.2'):
-                    n_params2 += param.nelement()
-        print(f"##### HYPERNETWORK PARAMS #{str(n_params0)}, {str(n_params1)}, {str(n_params2)}, {str(n_params)}")
+
+        self.fc_hyper1 = nn.Linear(128, 256)
+        self.fc_hyper2 = nn.Linear(256, 512)
+        #self.fc_hyper5 = nn.Linear(512, n_params)
+        self.fc_hyper5 = nn.Linear(512, 512)
+    
+        nn.init.kaiming_normal_(self.fc_hyper1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc_hyper2.weight, mode='fan_out', nonlinearity='relu')
+        
+        """
+        bias_initial = torch.log(torch.tensor([torch.exp(torch.tensor(1.0)) - 1])).item()
+        nn.init.zeros_(self.fc_hyper5.weight)
+        nn.init.constant_(self.fc_hyper5.bias, bias_initial)
+        """
+
+        self.norm2 = nn.LayerNorm(256)
+        self.norm3 = nn.LayerNorm(512)
+        
         """
         n_params= 0
         n_params_encoder0 = 0
@@ -642,37 +728,8 @@ class NAFNetBlurCLIP(nn.Module):
                 
         print(f"##### ENCODER PARAMS #{str(n_params_encoder0)}, {str(n_params_encoder1)}, {str(n_params_encoder2)}, {str(n_params_encoder3)}")
         print(f"##### DECODER PARAMS #{str(n_params_decoder0)}, {str(n_params_decoder1)}, {str(n_params_decoder2)}, {str(n_params_decoder3)} {str(n_params)}")
-        #import pdb; pdb.set_trace()
-        #self.mlp_res_block1 = ResMLPModule(512)
-        #self.mlp_res_block2 = ResMLPModule(512)
-        
-        #self.fc_hyper1 = nn.Linear(128, 256)
-        #self.fc_hyper2_0 = nn.Linear(256, 512)
-        #self.fc_hyper2_1 = nn.Linear(256, 512)
-        #self.fc_hyper2_2 = nn.Linear(256, 512)
-        #self.fc_hyper3 = nn.Linear(512, 1024)
-        #self.fc_hyper4 = nn.Linear(1024, 2048)
-        #self.fc_hyper3_0 = nn.Linear(512, n_params0)
-        #self.fc_hyper3_1 = nn.Linear(512, n_params1)
-        #self.fc_hyper3_2 = nn.Linear(512, n_params2)
-
-        self.fc_hyper1 = nn.Linear(128, 256)
-        self.fc_hyper2 = nn.Linear(256, 512)
-        self.fc_hyper5 = nn.Linear(512, n_params)
-    
-        nn.init.kaiming_normal_(self.fc_hyper1.weight, mode='fan_out', nonlinearity='relu')
-        nn.init.kaiming_normal_(self.fc_hyper2.weight, mode='fan_out', nonlinearity='relu')
         
         
-        bias_initial = torch.log(torch.tensor([torch.exp(torch.tensor(1.0)) - 1])).item()
-        nn.init.zeros_(self.fc_hyper5.weight)
-        nn.init.constant_(self.fc_hyper5.bias, bias_initial)
-        #self.fc_hyper5.weight.requires_grad = False
-        #self.fc_hyper5.bias.requires_grad = False
-        
-        self.norm2 = nn.LayerNorm(256)
-        self.norm3 = nn.LayerNorm(512)
-
         # re-build Encoders.
         
         self.n_hyper_encoder = 4
@@ -683,11 +740,11 @@ class NAFNetBlurCLIP(nn.Module):
                 self.encoders_hyper.append(
                     NAFBlockModulated(chan, self.encoders[0][0], requires_grad=requires_grad_NAFNet)
                 )
-                """
-                    nn.Sequential(
-                        *[NAFBlockModulated(chan) for _ in range(num)]
-                    )
-                """
+                
+                    #nn.Sequential(
+                    #    *[NAFBlockModulated(chan) for _ in range(num)]
+                    #)
+                
                 if num ==1:
                     self.encoders.pop(0)
                 else:
@@ -710,9 +767,7 @@ class NAFNetBlurCLIP(nn.Module):
                 )
                 self.decoders.pop(i-count)
                 count=count+1
-        
-        #self.load_pretrained_nafnet_parameters()
-
+        """
     def load_pretrained_blurclip_parameters(self):
         pretrained_dict = torch.load(self.pretrained_clip_dir)
         
@@ -784,45 +839,28 @@ class NAFNetBlurCLIP(nn.Module):
 
         embedding = self.b_encoder(inp)
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
-        #embedding = 2.877 * embedding
 
         embedding = Rearrange('b c h w -> b h w c')(embedding)
 
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
-        #x_hyper = self.mlp_res_block1(x_hyper)
+        x_hyper = self.mlp_res_block1(x_hyper)
         #x_hyper = self.mlp_res_block2(x_hyper)
         x_hyper = self.fc_hyper5(x_hyper)
 
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
-        x_hyper = F.softplus(x_hyper)
-
-        #print(torch.sum(x_hyper))
-        """
-        x_hyper = self.mlp_res_block1(x_hyper)
-        x_hyper = self.mlp_res_block2(x_hyper)
-        
-        x_hyper_0 = F.gelu(self.fc_hyper2_0(x_hyper))
-        x_hyper_1 = F.gelu(self.fc_hyper2_1(x_hyper))
-        x_hyper_2 = F.gelu(self.fc_hyper2_2(x_hyper))
-
-        x_hyper_0 = self.fc_hyper3_0(x_hyper_0)
-        x_hyper_1 = self.fc_hyper3_1(x_hyper_1)
-        x_hyper_2 = self.fc_hyper3_2(x_hyper_2)
-        
-        x_hyper = torch.cat([x_hyper_0, x_hyper_1, x_hyper_2], dim=-1)
-        """
-
-        weights_and_biases = self.parse_weights_and_biases(x_hyper)
+        x_hyper = x_hyper.contiguous()
+        #x_hyper = F.softplus(x_hyper)
+    
+        #weights_and_biases = self.parse_weights_and_biases(x_hyper)
         
         encs = []
+        """
         for i, down in enumerate(self.downs):
             if i<self.n_hyper_encoder:
-
-                """
-                for i_block in range(len(self.encoders_hyper[i])):
-                    x = self.encoders_hyper[i][i_block](x, weights_and_biases['encoders'][i][i_block])
-                """
+                #for i_block in range(len(self.encoders_hyper[i])):
+                #    x = self.encoders_hyper[i][i_block](x, weights_and_biases['encoders'][i][i_block])
+                
                 x = self.encoders_hyper[i](x, weights_and_biases['encoders'][i][0])
                 if i == self.levels-1:
                     x = self.encoders[self.levels-self.n_hyper_encoder](x)
@@ -834,18 +872,22 @@ class NAFNetBlurCLIP(nn.Module):
 
         """
         for encoder, down in zip(self.encoders, self.downs):
-            x = encoder(x)
+            num = len(encoder)
+            
+            for i in range(num):
+                x = encoder[i](x, x_hyper)
+            
             encs.append(x)
             x = down(x)
-        """
-        x = self.middle_blks(x)
-        """
+        
+        x = self.middle_blks[0](x, x_hyper)
+        
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = up(x)
             x = x + enc_skip
-            x = decoder(x)
+            x = decoder[0](x, x_hyper)
+        
         """
-        #for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
         encs_reverse = encs[::-1]
         count=0
         n_vanilla = len(self.ups)-self.n_hyper_decoder
@@ -859,7 +901,7 @@ class NAFNetBlurCLIP(nn.Module):
                 #print(f'hyper {n_vanilla+count}')
                 x = self.decoders_hyper[count](x, weights_and_biases['decoders'][n_vanilla+count])
                 count+=1
-
+        """
         x = self.ending(x)
         x = x + inp
 

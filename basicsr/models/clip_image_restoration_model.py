@@ -100,14 +100,14 @@ class CLIPImageRestorationModel(BaseModel):
         self.lr_hyper = train_opt['optim_g'].pop('lr_hyper')
         if optim_type == 'Adam':
             self.optimizer_g = torch.optim.Adam([{'params': optim_params},
-                                                 ], #{'params': hyper_params, 'lr':lr_hyper}
+                                                 {'params': self.hyper_params, 'lr': self.lr_hyper}], #
                                                 **train_opt['optim_g'])
         elif optim_type == 'SGD':
             self.optimizer_g = torch.optim.SGD(optim_params,
                                                **train_opt['optim_g'])
         elif optim_type == 'AdamW':
             self.optimizer_g = torch.optim.AdamW([{'params': optim_params},
-                                                  ], #{'params': hyper_params, 'lr':lr_hyper}
+                                                  {'params': self.hyper_params, 'lr': self.lr_hyper}],
                                                 **train_opt['optim_g'])
             pass
         else:
@@ -439,10 +439,10 @@ class CLIPImageRestorationModel(BaseModel):
 
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
-
+        """
         if current_iter >= self.opt['train'].get('start_hyper_iter') and len(self.optimizer_g.param_groups)==1:
             self.optimizer_g.add_param_group({'params': self.hyper_params, 'lr':self.lr_hyper})
-
+        """
         #    self.net_g.module.fc_hyper5.weight.requires_grad = True
         #    self.net_g.module.fc_hyper5.bias.requires_grad = True
 
