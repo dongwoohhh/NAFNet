@@ -461,26 +461,32 @@ class NAFBlockModulated(nn.Module):
 
 
 class NAFBlockKernelAttention(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=512):
+    def __init__(self, c, reso, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=512, modulate_conv=False):
         super().__init__()
 
         dw_channel = c * DW_Expand
         self.dw_channel = dw_channel
         self.c = c
-        
+        self.modulate_conv = modulate_conv
+        self.stride_patch = reso // 16 #reso // 2
+
         self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel,
                                bias=True)
         self.conv3 = nn.Conv2d(in_channels=dw_channel // 2, out_channels=c, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
 
-        """
+        
         # Simplified Channel Attention
+        """
         self.sca = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
+            nn.AvgPool2d(self.reso_patch),
             nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
                       groups=1, bias=True),
         )
         """
+        self.sca = nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
+                             groups=1, bias=True)
+
         self.conv_modulation = nn.Conv2d(embed_dim, self.dw_channel//2, kernel_size=1, stride=1, groups=1, bias=True)
 
         # SimpleGate
@@ -499,6 +505,141 @@ class NAFBlockKernelAttention(nn.Module):
         self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
+        if self.modulate_conv:
+            self.fc_mod1 = nn.Conv2d(embed_dim, c, kernel_size=1)
+            self.fc_mod2 = nn.Conv2d(embed_dim, 1, kernel_size=1)
+            self.fc_mod3 = nn.Conv2d(embed_dim, dw_channel//2, kernel_size=1)
+            self.fc_mod4 = nn.Conv2d(embed_dim, c, kernel_size=1)
+            self.fc_mod5 = nn.Conv2d(embed_dim, ffn_channel //2, kernel_size=1)
+
+
+    def conv1x1_modulated(self, x, w_base, b_base, modulation):
+        #modulation = weights_and_biases['weight']
+        modulation = modulation[:, None, :, None, None]
+
+        #b = weights_and_biases['bias']
+        
+        #w = w.squeeze((3,4))
+        #identity = x
+        
+        w = w_base[None, ..., None, None] * modulation
+        b = b_base[None, ..., None, None]
+
+        #w = self.normalize_weights(w)
+
+        B, _, H, W = x.shape
+        _, Co, Ci, kH, kW, wH, wW = w.shape
+        
+        patch_H = H // wH
+        patch_W = W // wW
+
+        w = Rearrange('b co ci kh kw h w -> b ci h w co kh kw')(w)
+        w = w.reshape(B, Ci, wH*wW*Co, kH, kW)
+        w = Rearrange('b ci ca kh kw -> b ca ci kh kw')(w)
+        w = Rearrange('b ca ci kh kw -> (b ca) ci kh kw')(w)
+
+
+        #w = Rearrange('b co ci h w -> b ci h w co')(w)
+        #w = w.reshape(B, Ci, wH*wW*Co)
+        #w = Rearrange('b ci ca -> b ca ci')(w)
+        #w = Rearrange('b ca ci -> (b ca) ci')(w)[..., None, None]
+
+        #b = Rearrange('b co h w -> b h w co')(b)
+        #b = b.reshape(B*wH*wW*Co)
+
+        x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
+        x = x.reshape(B, Ci, patch_H, patch_W, wH, wW)
+        x = Rearrange('b ci ph pw wh ww -> b wh ww ci ph pw')(x)
+        x = x.reshape(B*wH*wW*Ci, patch_H, patch_W)
+
+        """
+        x = x.reshape(B, Ci, wH, patch_H, wW, patch_W)
+        x = Rearrange('b ci wh ph ww pw -> b wh ww ci ph pw')(x)
+        x = x.reshape(B*wH*wW*Ci, patch_H, patch_W)
+        """
+        #x_list = [F.conv2d(x[i:i+1], w[i], b[i],stride=1, padding=0, dilation=1, groups=wH*wW) for i in range(B)]
+        #x = torch.cat(x_list, dim=0)
+        x = F.conv2d(x, w, None, stride=1, padding=0, dilation=1, groups=B*wH*wW)
+
+        x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
+        x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
+        x = x.reshape(B, Co, H, W)
+
+        x = x + b
+
+        return x
+    
+    def conv3x3_modulated(self, x, w_base, b_base, modulation):
+        #modulation = weights_and_biases['weight']
+        modulation = modulation[:, None, :, None, None]
+        #w = w.squeeze((3,4))
+        #identity = x
+        
+        w = w_base[None, ..., None, None] * modulation
+        b = b_base[None, ..., None, None]
+
+        #w = self.normalize_weights(w)
+
+        B, _, H, W = x.shape
+        _, Co, Ci, kH, kW, wH, wW = w.shape
+        
+        patch_H = H // wH
+        patch_W = W // wW
+
+        w = Rearrange('b co ci kh kw h w -> b ci h w co kh kw')(w)
+        w = w.reshape(B, Ci, wH*wW*Co, kH, kW)
+        w = Rearrange('b ci ca kh kw -> b ca ci kh kw')(w)
+        w = Rearrange('b ca ci kh kw -> (b ca) ci kh kw')(w)
+        #w = w[..., None, None]
+
+        #b = Rearrange('b co h w -> b h w co')(b)
+        #b = b.reshape(B*wH*wW*Co)
+
+        
+        x = F.unfold(x, kernel_size=(patch_H+2, patch_W+2), padding=(1, 1), stride=(patch_H, patch_W))
+        x = x.reshape(B, Co, patch_H+2, patch_W+2, wH, wW)
+        x = Rearrange('b co ph pw wh ww -> b wh ww co ph pw')(x)
+        x = x.reshape(B*wH*wW*Co, patch_H+2, patch_W+2)
+        x = F.conv2d(x, w, None, stride=1, padding=0, dilation=1, groups=B*wH*wW*Co)
+        #x1_tmp = x1[:, :, 1:-1, 1:-1]
+        #x1_tmp = Rearrange('a b c d e f -> a b e c f d')(x1_tmp)
+        #x1_tmp = x1_tmp.reshape(B, Co, H, W)
+        """
+        x = x.reshape(B, Co, wH, patch_H, wW, patch_W)
+        x = Rearrange('b co wh ph ww pw -> b wh ww co ph pw')(x)
+        x = x.reshape(B*wH*wW*Co, patch_H, patch_W)
+
+        #x_list = [F.conv2d(x[i:i+1], w[i], b[i], stride=1, padding=1, dilation=1, groups=wH*wW*Co) for i in range(B)]
+        #x = torch.cat(x_list, dim=0)
+        x = F.conv2d(x, w, b, stride=1, padding=1, dilation=1, groups=B*wH*wW*Co)
+        """
+        x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
+        x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
+        x = x.reshape(B, Co, H, W)
+
+        x = x + b
+
+        return x
+
+    def local_sca(self, x):
+        B, C, H, W = x.shape
+        
+        patch_H = H // self.stride_patch
+        patch_W = W // self.stride_patch
+
+        sca = self.sca(F.avg_pool2d(x, (patch_H, patch_W)))
+        sca = F.softplus(sca)
+        #print('sca', sca.shape)
+
+        x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
+        x = x.reshape(B, C, patch_H, patch_W, self.stride_patch, self.stride_patch)
+
+        x = x*sca[:, :, None, None]
+        x = Rearrange('b c ph pw eh ew -> b c eh ph ew pw')(x)
+        x = x.reshape(B, C, H, W)
+
+        return x
+
     def local_modulation(self, x, embedding):
         modulation = self.conv_modulation(embedding)
         modulation = F.softplus(modulation)
@@ -507,13 +648,14 @@ class NAFBlockKernelAttention(nn.Module):
         
         B, C, H, W = x.shape
         _, _, eH, eW = modulation.shape
-
+        #print('modulation', modulation.shape)
         patch_H = H // eH
         patch_W = W // eW
         
         x = F.unfold(x, kernel_size=(patch_H, patch_W), padding=(0, 0), stride=(patch_H, patch_W))
         x = x.reshape(B, C, patch_H, patch_W, eH, eW)
         #print(x.shape, modulation[:, :, None, None].shape)
+
         x = x * modulation[:, :, None, None]
         x = Rearrange('b c ph pw eh ew -> b c eh ph ew pw')(x)
         x = x.reshape(B, C, H, W)
@@ -528,22 +670,47 @@ class NAFBlockKernelAttention(nn.Module):
 
         x = self.norm1(x)
 
-        x = self.conv1(x)
-        x = self.conv2(x)
+        if not self.modulate_conv:
+            x = self.conv1(x)
+            x = self.conv2(x)
+        else:
+            mod1 = self.fc_mod1(embedding)
+            mod2 = self.fc_mod2(embedding)
+
+            x = self.conv1x1_modulated(x, self.conv1.weight, self.conv1.bias, mod1)
+            x = self.conv3x3_modulated(x, self.conv2.weight, self.conv2.bias, mod2)
+
         x = self.sg(x)
 
+
         #x = x * self.sca(x)
+        x = self.local_sca(x)
+        #import pdb;
         x = self.local_modulation(x, embedding)
         
-        x = self.conv3(x)
+        if not self.modulate_conv:
+            x = self.conv3(x)
+        else:
+            mod3 = self.fc_mod3(embedding)
+            x = self.conv1x1_modulated(x, self.conv3.weight, self.conv3.bias, mod3)
 
         x = self.dropout1(x)
 
         y = inp + x * self.beta
+        x = self.norm2(y)
+        
+        if not self.modulate_conv:
+            x = self.conv4(x)
+            x = self.sg(x)
+            x = self.conv5(x)
+        else:
+            mod4 = self.fc_mod4(embedding)
+            mod5 = self.fc_mod5(embedding)
+            
+            x = self.conv1x1_modulated(x, self.conv4.weight, self.conv4.bias, mod4)
+            x = self.sg(x)
+            x = self.conv1x1_modulated(x, self.conv5.weight, self.conv5.bias, mod5)
 
-        x = self.conv4(self.norm2(y))
-        x = self.sg(x)
-        x = self.conv5(x)
 
         x = self.dropout2(x)
 
@@ -589,7 +756,7 @@ class ResMLPModule(nn.Module):
 
 class NAFNetBlurCLIP(nn.Module):
 
-    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128, requires_grad_NAFNet=True):
+    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128, requires_grad_NAFNet=True, img_reso=256):
         super().__init__()
 
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -605,20 +772,22 @@ class NAFNetBlurCLIP(nn.Module):
         self.downs = nn.ModuleList()
 
         chan = width
+        feat_reso = img_reso
         for num in enc_blk_nums:
             self.encoders.append(
                 nn.Sequential(
-                    *[NAFBlockKernelAttention(chan) for _ in range(num)]
+                    *[NAFBlockKernelAttention(chan, reso=feat_reso, modulate_conv=True if i_num==0 else False) for i_num in range(num)]
                 )
             )
             self.downs.append(
                 nn.Conv2d(chan, 2*chan, 2, 2)
             )
             chan = chan * 2
+            feat_reso = feat_reso // 2
 
         self.middle_blks = \
             nn.Sequential(
-                *[NAFBlockKernelAttention(chan) for _ in range(middle_blk_num)]
+                *[NAFBlockKernelAttention(chan, reso=feat_reso) for _ in range(middle_blk_num)]
             )
         chan_middle = chan
         for num in dec_blk_nums:
@@ -629,9 +798,10 @@ class NAFNetBlurCLIP(nn.Module):
                 )
             )
             chan = chan // 2
+            feat_reso = feat_reso * 2
             self.decoders.append(
                 nn.Sequential(
-                    *[NAFBlockKernelAttention(chan) for _ in range(num)]
+                    *[NAFBlockKernelAttention(chan, reso=feat_reso) for _ in range(num)]
                 )
             )
 
