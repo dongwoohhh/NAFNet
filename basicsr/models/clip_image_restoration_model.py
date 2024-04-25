@@ -86,7 +86,7 @@ class CLIPImageRestorationModel(BaseModel):
         #         if k.startswith('module.offsets') or k.startswith('module.dcns'):
         #             optim_params_lowlr.append(v)
         #         else:
-                if k.find('mlp_res_block')>0 or k.find('fc_hyper')>0:
+                if k.find('mlp_res_block')>0 or k.find('fc_hyper')>0  or k.find('fc_mod')>0 :
                     self.hyper_params.append(v)
                 else:
                     optim_params.append(v)
@@ -107,7 +107,7 @@ class CLIPImageRestorationModel(BaseModel):
                                                **train_opt['optim_g'])
         elif optim_type == 'AdamW':
             self.optimizer_g = torch.optim.AdamW([{'params': optim_params},
-                                                  {'params': self.hyper_params, 'lr': self.lr_hyper}],
+                                                  {'params': self.hyper_params, 'lr': self.lr_hyper}], #
                                                 **train_opt['optim_g'])
             pass
         else:

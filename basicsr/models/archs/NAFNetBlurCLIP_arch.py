@@ -461,7 +461,7 @@ class NAFBlockModulated(nn.Module):
 
 
 class NAFBlockKernelAttention(nn.Module):
-    def __init__(self, c, reso, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=512, modulate_conv=False):
+    def __init__(self, c, reso, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=256, modulate_conv=False):
         super().__init__()
 
         dw_channel = c * DW_Expand
@@ -477,9 +477,9 @@ class NAFBlockKernelAttention(nn.Module):
 
         
         # Simplified Channel Attention
-        """
+        
         self.sca = nn.Sequential(
-            nn.AvgPool2d(self.reso_patch),
+            nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
                       groups=1, bias=True),
         )
@@ -488,7 +488,7 @@ class NAFBlockKernelAttention(nn.Module):
                              groups=1, bias=True)
 
         self.conv_modulation = nn.Conv2d(embed_dim, self.dw_channel//2, kernel_size=1, stride=1, groups=1, bias=True)
-
+        """
         # SimpleGate
         self.sg = SimpleGate()
 
@@ -511,12 +511,23 @@ class NAFBlockKernelAttention(nn.Module):
             self.fc_mod3 = nn.Conv2d(embed_dim, dw_channel//2, kernel_size=1)
             self.fc_mod4 = nn.Conv2d(embed_dim, c, kernel_size=1)
             self.fc_mod5 = nn.Conv2d(embed_dim, ffn_channel //2, kernel_size=1)
+            
+            self.init_fc_mod(self.fc_mod1)
+            self.init_fc_mod(self.fc_mod2)
+            self.init_fc_mod(self.fc_mod3)
+            self.init_fc_mod(self.fc_mod4)
+            self.init_fc_mod(self.fc_mod5)
 
+
+    def init_fc_mod(self, fc_mod):
+        bias_initial = torch.log(torch.tensor([torch.exp(torch.tensor(1.0)) - 1])).item()
+        nn.init.zeros_(fc_mod.weight)
+        nn.init.constant_(fc_mod.bias, bias_initial)
 
     def conv1x1_modulated(self, x, w_base, b_base, modulation):
         #modulation = weights_and_biases['weight']
         modulation = modulation[:, None, :, None, None]
-
+        modulation = F.softplus(modulation)
         #b = weights_and_biases['bias']
         
         #w = w.squeeze((3,4))
@@ -564,7 +575,7 @@ class NAFBlockKernelAttention(nn.Module):
         x = x.reshape(B, wH, wW, Co, patch_H, patch_W)
         x = Rearrange('b wh ww co ph pw -> b co wh ph ww pw')(x)
         x = x.reshape(B, Co, H, W)
-
+        
         x = x + b
 
         return x
@@ -572,6 +583,7 @@ class NAFBlockKernelAttention(nn.Module):
     def conv3x3_modulated(self, x, w_base, b_base, modulation):
         #modulation = weights_and_biases['weight']
         modulation = modulation[:, None, :, None, None]
+        modulation = F.softplus(modulation)
         #w = w.squeeze((3,4))
         #identity = x
         
@@ -683,10 +695,10 @@ class NAFBlockKernelAttention(nn.Module):
         x = self.sg(x)
 
 
-        #x = x * self.sca(x)
-        x = self.local_sca(x)
+        x = x * self.sca(x)
+        #x = self.local_sca(x)
         #import pdb;
-        x = self.local_modulation(x, embedding)
+        #x = self.local_modulation(x, embedding)
         
         if not self.modulate_conv:
             x = self.conv3(x)
@@ -756,7 +768,7 @@ class ResMLPModule(nn.Module):
 
 class NAFNetBlurCLIP(nn.Module):
 
-    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128, requires_grad_NAFNet=True, img_reso=256):
+    def __init__(self, pretrained_clip_dir, pretrained_nafnet_dir, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[], vision_layers=[3,4,6,3], embed_dim=128, img_reso=256):
         super().__init__()
 
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -819,9 +831,13 @@ class NAFNetBlurCLIP(nn.Module):
         self.b_encoder = BlurEncoder(layers=vision_layers, output_dim=embed_dim, width=64)
         self.load_pretrained_blurclip_parameters()
         
+        #self.fc_hyper1 = nn.Linear(128, 256)
+        #self.norm2 = nn.LayerNorm(256)
+        self.fc_hyper1 = nn.Conv2d(128, 256, kernel_size=1)
+        self.norm2 = nn.Identity() #LayerNorm2d(256)
+        """
         self.mlp_res_block1 = ResMLPModule(512)
         #self.mlp_res_block2 = ResMLPModule(512)
-        
 
         self.fc_hyper1 = nn.Linear(128, 256)
         self.fc_hyper2 = nn.Linear(256, 512)
@@ -831,15 +847,15 @@ class NAFNetBlurCLIP(nn.Module):
         nn.init.kaiming_normal_(self.fc_hyper1.weight, mode='fan_out', nonlinearity='relu')
         nn.init.kaiming_normal_(self.fc_hyper2.weight, mode='fan_out', nonlinearity='relu')
         
-        """
-        bias_initial = torch.log(torch.tensor([torch.exp(torch.tensor(1.0)) - 1])).item()
-        nn.init.zeros_(self.fc_hyper5.weight)
-        nn.init.constant_(self.fc_hyper5.bias, bias_initial)
-        """
+        
+        #bias_initial = torch.log(torch.tensor([torch.exp(torch.tensor(1.0)) - 1])).item()
+        #nn.init.zeros_(self.fc_hyper5.weight)
+        #nn.init.constant_(self.fc_hyper5.bias, bias_initial)
+        
 
         self.norm2 = nn.LayerNorm(256)
         self.norm3 = nn.LayerNorm(512)
-        
+        """
         """
         n_params= 0
         n_params_encoder0 = 0
@@ -1009,9 +1025,14 @@ class NAFNetBlurCLIP(nn.Module):
 
         embedding = self.b_encoder(inp)
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
-
+        
+        #embedding = Rearrange('b c h w -> b h w c')(embedding)
+        x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
+        #x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
+        #x_hyper = x_hyper.contiguous()
+        """
         embedding = Rearrange('b c h w -> b h w c')(embedding)
-
+        
         x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
         x_hyper = F.gelu(self.norm3(self.fc_hyper2(x_hyper)))
         x_hyper = self.mlp_res_block1(x_hyper)
@@ -1020,6 +1041,8 @@ class NAFNetBlurCLIP(nn.Module):
 
         x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
         x_hyper = x_hyper.contiguous()
+        """
+        #x_hyper = embedding
         #x_hyper = F.softplus(x_hyper)
     
         #weights_and_biases = self.parse_weights_and_biases(x_hyper)
