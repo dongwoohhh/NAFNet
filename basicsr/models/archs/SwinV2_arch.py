@@ -606,15 +606,12 @@ class SwinTransformerV2(nn.Module):
     def no_weight_decay_keywords(self):
         return {"cpb_mlp", "logit_scale", 'relative_position_bias_table'}
 
-    def forward_features(self, x, embedding):
-
-
-
+    def forward_features(self, x):
         #print("input", x.shape)
         x = self.patch_embed(x)
         #print("patch_embed", x.shape)
         if self.ape:
-            x = x + self.absolute_pos_embed #+
+            x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
         #print("pos_drop", x.shape)
         for layer in self.layers:

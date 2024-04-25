@@ -470,8 +470,6 @@ class NAFBlockKernelAttention(nn.Module):
         self.modulate_conv = modulate_conv
         self.stride_patch = reso // 16 #reso // 2
 
-        self.attention_module = PatchWiseCrossAttentionModule(input_channel_x=embed_dim, input_channel_y=c)
-
         self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel,
                                bias=True)
@@ -508,6 +506,8 @@ class NAFBlockKernelAttention(nn.Module):
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
         if self.modulate_conv:
+            self.attention_module = PatchWiseCrossAttentionModule(input_channel_x=embed_dim, input_channel_y=c, output_channel=c,
+                                                              n_spatial=self.stride_patch, kernel_size=15, padding=15//2, num_heads=c//16)
             self.fc_mod1 = nn.Conv2d(embed_dim, c, kernel_size=1)
             self.fc_mod2 = nn.Conv2d(embed_dim, 1, kernel_size=1)
             self.fc_mod3 = nn.Conv2d(embed_dim, dw_channel//2, kernel_size=1)
@@ -688,6 +688,8 @@ class NAFBlockKernelAttention(nn.Module):
             x = self.conv1(x)
             x = self.conv2(x)
         else:
+            import pdb; pdb.set_trace()
+            x = self.attention_module(embedding, x)
             mod1 = self.fc_mod1(embedding)
             mod2 = self.fc_mod2(embedding)
 
