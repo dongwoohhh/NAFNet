@@ -470,6 +470,8 @@ class NAFBlockKernelAttention(nn.Module):
         self.modulate_conv = modulate_conv
         self.stride_patch = reso // 16 #reso // 2
 
+        self.attention_module = PatchWiseCrossAttentionModule(input_channel_x=embed_dim, input_channel_y=c)
+
         self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel,
                                bias=True)
@@ -728,6 +730,77 @@ class NAFBlockKernelAttention(nn.Module):
 
         return y + x * self.gamma
 
+
+class PatchWiseCrossAttentionModule(nn.Module):
+    def __init__(self, input_channel_x, input_channel_y, output_channel, n_spatial, kernel_size, padding, num_heads):
+        super(PatchWiseCrossAttentionModule, self).__init__()
+        self.input_channel_x = input_channel_x
+        self.input_channel_y = input_channel_y
+        self.output_channel = output_channel
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.num_heads = num_heads
+        self.n_spatial = n_spatial
+        self.scale = (1 / (kernel_size * kernel_size)) ** 0.5
+        self.head_dim = output_channel // num_heads
+
+        # Convolution layers for keys, queries from x, and values from y
+        self.key_conv = nn.Conv2d(input_channel_x, output_channel, 1, bias=False)
+        self.query_conv = nn.Conv2d(input_channel_x, output_channel, 1, bias=False)
+        self.value_conv = nn.Conv2d(input_channel_y, output_channel, 1, bias=False)
+
+        # Unfold operation for extracting patches
+        self.unfold_x = nn.Unfold(kernel_size=kernel_size, padding=padding, stride=1)
+        self.unfold_y = nn.Unfold(kernel_size=self.n_spatial, padding=0, stride=self.n_spatial)
+
+        # Positional embeddings
+        self.positional_embedding = nn.Parameter(torch.randn((1, output_channel, kernel_size, kernel_size)))
+
+    def forward(self, x, y):
+        B, _, H, W = x.shape
+
+        # Compute keys and queries from x
+        keys = self.key_conv(x)
+        queries = self.query_conv(x)
+
+        # Unfold x for local attention
+        keys_unfolded = self.unfold_x(keys).view(B, self.output_channel, self.kernel_size*self.kernel_size, H, W)
+        queries_unfolded = self.unfold_x(queries).view(B, self.output_channel, self.kernel_size*self.kernel_size, H, W)
+        
+        # Create mask for zero-padded areas
+        mask = (torch.sum(keys_unfolded, dim=1, keepdim=True) == 0)
+        mask = Rearrange('B 1 C H W -> B H W 1 C')(mask).repeat(1, 1, 1, self.kernel_size*self.kernel_size, 1)
+        #mask = mask.unsqueeze(2).expand(-1, -1, self.kernel_size*self.kernel_size, -1, -1)
+        
+        # Add positional embeddings to keys and queries
+        keys_unfolded += self.positional_embedding.view(1, self.output_channel, self.kernel_size*self.kernel_size, 1, 1)
+        queries_unfolded += self.positional_embedding.view(1, self.output_channel, self.kernel_size*self.kernel_size, 1, 1)
+
+        # Compute values from y
+        values = self.value_conv(y)
+        values_unfolded = self.unfold_y(values).view(B, self.output_channel, self.n_spatial*self.n_spatial, H, W)
+        
+        values_unfolded = Rearrange('B C T H W -> (B T) C H W')(values_unfolded)
+        values_unfolded2 = self.unfold_x(values_unfolded).reshape(B, self.n_spatial*self.n_spatial, self.output_channel, self.kernel_size*self.kernel_size, H, W)
+        values_unfolded2 = Rearrange('B T C N H W -> B T H W N C')(values_unfolded2)
+
+        queries_unfolded = Rearrange('B C N H W-> B H W N C')(queries_unfolded)
+        keys_unfolded = Rearrange('B C N H W-> B H W C N')(keys_unfolded)
+        
+        # Compute attention scores
+        attention_scores = torch.matmul(queries_unfolded, keys_unfolded)
+        attention_scores = attention_scores.masked_fill(mask, float('-inf'))
+        attention_scores = F.softmax(attention_scores * self.scale, dim=-1)
+        
+        # Apply attention to values
+        attention_values = torch.matmul(attention_scores.unsqueeze(1), values_unfolded2)
+        
+        attention_values = attention_values.sum(dim=-2)  # Sum across the spatial dimensions
+        attention_values = Rearrange('B (T1 T2) H W C -> B C (H T1) (W T2)', T1=self.n_spatial, T2=self.n_spatial)(attention_values)
+
+        y = y + attention_values
+
+        return attention_values
 
 class conv(nn.Module):
     def __init__(self, num_in_layers, num_out_layers, kernel_size, stride):
