@@ -19,6 +19,7 @@ import torch.nn.functional as F
 from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
 from basicsr.models.archs.KernelNet_arch import BlurEncoder, Bottleneck
+from basicsr.models.archs.SwinIR_arch import SwinIR
 from einops.layers.torch import Rearrange
 class SimpleGate(nn.Module):
     def forward(self, x):
@@ -461,7 +462,7 @@ class NAFBlockModulated(nn.Module):
 
 
 class NAFBlockKernelAttention(nn.Module):
-    def __init__(self, c, reso, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=256, modulate_conv=False):
+    def __init__(self, c, reso, DW_Expand=2, FFN_Expand=2, drop_out_rate=0., embed_dim=256, modulate_conv=False, kernel_attn=False,):
         super().__init__()
 
         dw_channel = c * DW_Expand
@@ -469,6 +470,15 @@ class NAFBlockKernelAttention(nn.Module):
         self.c = c
         self.modulate_conv = modulate_conv
         self.stride_patch = reso // 16 #reso // 2
+
+        self.kernel_attn = kernel_attn
+        if self.kernel_attn:
+            self.attention_module = SwinIR(upscale=1, img_size=256, in_chans=c,
+                   in_chans_embedding=embed_dim, scale_embedding=self.stride_patch,
+                   window_size=8, depths=[2], #reso//8
+                   embed_dim=60, num_heads=[6], mlp_ratio=2, upsampler='')
+            #self.attention_module = PatchWiseCrossAttentionModule(input_channel_x=embed_dim, input_channel_y=c, output_channel=c,
+            #                                                    n_spatial=self.stride_patch, kernel_size=15, padding=15//2, num_heads=c//16)
 
         self.conv1 = nn.Conv2d(in_channels=c, out_channels=dw_channel, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         self.conv2 = nn.Conv2d(in_channels=dw_channel, out_channels=dw_channel, kernel_size=3, padding=1, stride=1, groups=dw_channel,
@@ -486,9 +496,10 @@ class NAFBlockKernelAttention(nn.Module):
         """
         self.sca = nn.Conv2d(in_channels=self.dw_channel // 2, out_channels=self.dw_channel // 2, kernel_size=1, padding=0, stride=1,
                              groups=1, bias=True)
-
         self.conv_modulation = nn.Conv2d(embed_dim, self.dw_channel//2, kernel_size=1, stride=1, groups=1, bias=True)
         """
+        
+
         # SimpleGate
         self.sg = SimpleGate()
 
@@ -506,8 +517,6 @@ class NAFBlockKernelAttention(nn.Module):
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
         if self.modulate_conv:
-            self.attention_module = PatchWiseCrossAttentionModule(input_channel_x=embed_dim, input_channel_y=c, output_channel=c,
-                                                              n_spatial=self.stride_patch, kernel_size=15, padding=15//2, num_heads=c//16)
             self.fc_mod1 = nn.Conv2d(embed_dim, c, kernel_size=1)
             self.fc_mod2 = nn.Conv2d(embed_dim, 1, kernel_size=1)
             self.fc_mod3 = nn.Conv2d(embed_dim, dw_channel//2, kernel_size=1)
@@ -684,12 +693,15 @@ class NAFBlockKernelAttention(nn.Module):
 
         x = self.norm1(x)
 
+        if self.kernel_attn:
+            x = self.attention_module(x, embedding)
+
         if not self.modulate_conv:
             x = self.conv1(x)
             x = self.conv2(x)
         else:
-            import pdb; pdb.set_trace()
-            x = self.attention_module(embedding, x)
+            #import pdb; pdb.set_trace()
+            #x = self.attention_module(embedding, x)
             mod1 = self.fc_mod1(embedding)
             mod2 = self.fc_mod2(embedding)
 
@@ -701,7 +713,6 @@ class NAFBlockKernelAttention(nn.Module):
 
         x = x * self.sca(x)
         #x = self.local_sca(x)
-        #import pdb;
         #x = self.local_modulation(x, embedding)
         
         if not self.modulate_conv:
@@ -860,10 +871,11 @@ class NAFNetBlurCLIP(nn.Module):
 
         chan = width
         feat_reso = img_reso
+        n_dims = 256
         for num in enc_blk_nums:
             self.encoders.append(
                 nn.Sequential(
-                    *[NAFBlockKernelAttention(chan, reso=feat_reso, modulate_conv=True if i_num==0 else False) for i_num in range(num)]
+                    *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims, kernel_attn=True if i_num==0 else False) for i_num in range(num)] #, modulate_conv=True if i_num==0 else False
                 )
             )
             self.downs.append(
@@ -874,7 +886,8 @@ class NAFNetBlurCLIP(nn.Module):
 
         self.middle_blks = \
             nn.Sequential(
-                *[NAFBlockKernelAttention(chan, reso=feat_reso) for _ in range(middle_blk_num)]
+                #*[NAFBlock(chan) for _ in range(num)]
+                *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims) for _ in range(middle_blk_num)]
             )
         chan_middle = chan
         for num in dec_blk_nums:
@@ -888,7 +901,7 @@ class NAFNetBlurCLIP(nn.Module):
             feat_reso = feat_reso * 2
             self.decoders.append(
                 nn.Sequential(
-                    *[NAFBlockKernelAttention(chan, reso=feat_reso) for _ in range(num)]
+                    *[NAFBlock(chan) for _ in range(num)]
                 )
             )
 
@@ -909,7 +922,9 @@ class NAFNetBlurCLIP(nn.Module):
         #self.fc_hyper1 = nn.Linear(128, 256)
         #self.norm2 = nn.LayerNorm(256)
         self.fc_hyper1 = nn.Conv2d(128, 256, kernel_size=1)
-        self.norm2 = nn.Identity() #LayerNorm2d(256)
+        #self.fc_hyper2 = nn.Conv2d(256, 512, kernel_size=1)
+        self.norm1 = LayerNorm2d(256)
+        #self.norm2 = LayerNorm2d(512)
         """
         self.mlp_res_block1 = ResMLPModule(512)
         #self.mlp_res_block2 = ResMLPModule(512)
@@ -1102,7 +1117,9 @@ class NAFNetBlurCLIP(nn.Module):
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
         
         #embedding = Rearrange('b c h w -> b h w c')(embedding)
-        x_hyper = F.gelu(self.norm2(self.fc_hyper1(embedding)))
+        x_hyper = F.gelu(self.norm1(self.fc_hyper1(embedding)))
+        #x_hyper = F.gelu(self.norm2(self.fc_hyper2(x_hyper)))
+        
         #x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
         #x_hyper = x_hyper.contiguous()
         """
@@ -1153,7 +1170,7 @@ class NAFNetBlurCLIP(nn.Module):
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = up(x)
             x = x + enc_skip
-            x = decoder[0](x, x_hyper)
+            x = decoder[0](x)
         
         """
         encs_reverse = encs[::-1]
