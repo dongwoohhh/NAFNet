@@ -19,7 +19,8 @@ import torch.nn.functional as F
 from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
 from basicsr.models.archs.KernelNet_arch import BlurEncoder, Bottleneck
-from basicsr.models.archs.SwinIR_arch import SwinIR
+#from basicsr.models.archs.SwinIR_arch import SwinIR
+from basicsr.models.archs.SwinIR_arch_query import SwinIR
 from einops.layers.torch import Rearrange
 class SimpleGate(nn.Module):
     def forward(self, x):
