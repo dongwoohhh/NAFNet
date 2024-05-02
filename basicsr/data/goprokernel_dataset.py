@@ -177,7 +177,7 @@ class GoProKernelDataset(data.Dataset):
             print(self.paths[index]['kernel_path'])
             kernel = torch.where(torch.isnan(kernel), torch.zeros_like(kernel), kernel)
             
-        
+        #print(img_lq.shape, kernel.shape)
         H, W, _ = img_lq.shape
         img_lq = img_lq[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
         img_gt = img_gt[:H//scale_kernel*scale_kernel, :W//scale_kernel*scale_kernel]
@@ -195,6 +195,8 @@ class GoProKernelDataset(data.Dataset):
         H, W, _ = img_lq.shape
         # augmentation for training
         gt_size = self.opt['gt_size']
+
+        #print((H//2-gt_size)//scale_kernel, (H//2+gt_size)//scale_kernel)
             # padding
         if self.opt['phase'] == 'train': #or self.opt['phase'] == 'val':
             

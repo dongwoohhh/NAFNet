@@ -490,8 +490,8 @@ class CLIPImageRestorationModel(BaseModel):
 
             self.feed_data(val_data, is_val=True)
             if self.opt['val'].get('grids', False):
-                #self.grids_overlap()
-                self.grids()
+                self.grids_overlap()
+                #self.grids()
 
             self.test()
 
