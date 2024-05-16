@@ -13,13 +13,14 @@ Simple Baselines for Image Restoration
 }
 '''
 from collections import OrderedDict
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from basicsr.models.archs.arch_util import LayerNorm2d
 from basicsr.models.archs.local_arch import Local_Base
 from basicsr.models.archs.KernelNet_arch import BlurEncoder, Bottleneck
-from basicsr.models.archs.SwinIR_arch import SwinIR
+#from basicsr.models.archs.SwinIR_arch import SwinIR
 #from basicsr.models.archs.SwinIR_arch_query import SwinIR
 from einops.layers.torch import Rearrange
 class SimpleGate(nn.Module):
@@ -264,9 +265,9 @@ class NAFBlockModulated(nn.Module):
         return w
 
 
-    def conv1x1_pixelwise(self, x, weights_and_biases):
-        w = weights_and_biases['weight']
-        b = weights_and_biases['bias']
+    def conv1x1_pixelwise(self, x, w):
+        #w = weights_and_biases['weight']
+        #b = weights_and_biases['bias']
 
         w = w.squeeze((3,4))
         #identity = x
@@ -288,7 +289,7 @@ class NAFBlockModulated(nn.Module):
 
         x = torch.matmul(w, x)
         x = x.squeeze(-1)
-        x = x + b
+        #x = x + b
         x = Rearrange('b h w c -> b c h w')(x)
 
         #x = x+identity
@@ -518,6 +519,15 @@ class NAFBlockKernelAttention(nn.Module):
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
         if self.modulate_conv:
+            
+            self.fc_mod = nn.Conv2d(embed_dim, c, kernel_size=1)
+            deconv_kargs = {'stride': 2, 'padding': 1, 'output_padding': 1, 'groups': c,}
+            self.deconv_embedding = nn.Sequential(
+                *[nn.ConvTranspose2d(c, c, 3, **deconv_kargs)
+                for i in range(int(math.log2(self.stride_patch)))])
+            #print(self.stride_patch)
+            self.conv0 = nn.Conv2d(c+c, c, kernel_size=1)
+            """
             self.fc_mod1 = nn.Conv2d(embed_dim, c, kernel_size=1)
             self.fc_mod2 = nn.Conv2d(embed_dim, 1, kernel_size=1)
             self.fc_mod3 = nn.Conv2d(embed_dim, dw_channel//2, kernel_size=1)
@@ -529,7 +539,7 @@ class NAFBlockKernelAttention(nn.Module):
             self.init_fc_mod(self.fc_mod3)
             self.init_fc_mod(self.fc_mod4)
             self.init_fc_mod(self.fc_mod5)
-
+            """
 
     def init_fc_mod(self, fc_mod):
         bias_initial = torch.log(torch.tensor([torch.exp(torch.tensor(1.0)) - 1])).item()
@@ -697,6 +707,18 @@ class NAFBlockKernelAttention(nn.Module):
         if self.kernel_attn:
             x = self.attention_module(x, embedding)
 
+        if self.modulate_conv:
+            embedding = self.fc_mod(embedding)
+            embedding_up = self.deconv_embedding(embedding)
+            x = self.conv0(torch.cat([x, embedding_up], dim=1))
+            #feat_mod = self.fc_mod(torch.cat([x, embedding_up], dim=1))
+            #x = x + feat_mod
+            #x = self.conv1x1_pixelwise(x, feat_mod)
+
+            #import pdb; pdb.set_trace()
+        x = self.conv1(x)
+        x = self.conv2(x)
+        """
         if not self.modulate_conv:
             x = self.conv1(x)
             x = self.conv2(x)
@@ -708,25 +730,30 @@ class NAFBlockKernelAttention(nn.Module):
 
             x = self.conv1x1_modulated(x, self.conv1.weight, self.conv1.bias, mod1)
             x = self.conv3x3_modulated(x, self.conv2.weight, self.conv2.bias, mod2)
-
+        """
         x = self.sg(x)
 
 
         x = x * self.sca(x)
         #x = self.local_sca(x)
         #x = self.local_modulation(x, embedding)
-        
+        x = self.conv3(x)
+        """
         if not self.modulate_conv:
             x = self.conv3(x)
         else:
             mod3 = self.fc_mod3(embedding)
             x = self.conv1x1_modulated(x, self.conv3.weight, self.conv3.bias, mod3)
-
+        """
         x = self.dropout1(x)
 
         y = inp + x * self.beta
         x = self.norm2(y)
         
+        x = self.conv4(x)
+        x = self.sg(x)
+        x = self.conv5(x)
+        """
         if not self.modulate_conv:
             x = self.conv4(x)
             x = self.sg(x)
@@ -738,7 +765,7 @@ class NAFBlockKernelAttention(nn.Module):
             x = self.conv1x1_modulated(x, self.conv4.weight, self.conv4.bias, mod4)
             x = self.sg(x)
             x = self.conv1x1_modulated(x, self.conv5.weight, self.conv5.bias, mod5)
-
+        """
 
         x = self.dropout2(x)
 
@@ -872,11 +899,12 @@ class NAFNetBlurCLIP(nn.Module):
 
         chan = width
         feat_reso = img_reso
-        n_dims = 256
+        n_dims = 128
+        # if i_num==0 else False
         for num in enc_blk_nums:
             self.encoders.append(
                 nn.Sequential(
-                    *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims, kernel_attn=True if i_num==0 else False) for i_num in range(num)] #, modulate_conv=True if i_num==0 else False
+                    *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims, modulate_conv=True) for i_num in range(num)] #, modulate_conv=True if i_num==0 else False
                 )
             )
             self.downs.append(
@@ -888,7 +916,7 @@ class NAFNetBlurCLIP(nn.Module):
         self.middle_blks = \
             nn.Sequential(
                 #*[NAFBlock(chan) for _ in range(num)]
-                *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims) for _ in range(middle_blk_num)]
+                *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims, modulate_conv=True) for _ in range(middle_blk_num)]
             )
         chan_middle = chan
         for num in dec_blk_nums:
@@ -902,7 +930,8 @@ class NAFNetBlurCLIP(nn.Module):
             feat_reso = feat_reso * 2
             self.decoders.append(
                 nn.Sequential(
-                    *[NAFBlock(chan) for _ in range(num)]
+                    #*[NAFBlock(chan) for _ in range(num)]
+                    *[NAFBlockKernelAttention(chan, reso=feat_reso, embed_dim=n_dims, modulate_conv=True) for _ in range(middle_blk_num)]
                 )
             )
 
@@ -922,9 +951,11 @@ class NAFNetBlurCLIP(nn.Module):
         
         #self.fc_hyper1 = nn.Linear(128, 256)
         #self.norm2 = nn.LayerNorm(256)
-        self.fc_hyper1 = nn.Conv2d(128, 256, kernel_size=1)
+        
         #self.fc_hyper2 = nn.Conv2d(256, 512, kernel_size=1)
-        self.norm1 = LayerNorm2d(256)
+        
+        #self.fc_hyper1 = nn.Conv2d(128, 256, kernel_size=1)
+        #self.norm1 = LayerNorm2d(256)
         #self.norm2 = LayerNorm2d(512)
         """
         self.mlp_res_block1 = ResMLPModule(512)
@@ -1116,9 +1147,12 @@ class NAFNetBlurCLIP(nn.Module):
 
         embedding = self.b_encoder(inp)
         embedding = embedding / embedding.norm(dim=1, keepdim=True)
-        
+        x_hyper = embedding
+
         #embedding = Rearrange('b c h w -> b h w c')(embedding)
-        x_hyper = F.gelu(self.norm1(self.fc_hyper1(embedding)))
+        
+        #x_hyper = F.gelu(self.norm1(self.fc_hyper1(embedding)))
+        
         #x_hyper = F.gelu(self.norm2(self.fc_hyper2(x_hyper)))
         
         #x_hyper = Rearrange('b h w c -> b c h w')(x_hyper)
@@ -1171,7 +1205,7 @@ class NAFNetBlurCLIP(nn.Module):
         for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
             x = up(x)
             x = x + enc_skip
-            x = decoder[0](x)
+            x = decoder[0](x, x_hyper)
         
         """
         encs_reverse = encs[::-1]
