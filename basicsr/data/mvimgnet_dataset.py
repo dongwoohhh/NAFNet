@@ -116,7 +116,7 @@ class MVImgNetDataset(data.Dataset):
 
         
         # augmentation for training
-        if self.opt['phase'] == 'train':
+        if self.opt['phase'].find('train') >=0:
             gt_size = self.opt['gt_size']
             # padding
             img_gt, img_lq = padding(img_gt, img_lq, gt_size)

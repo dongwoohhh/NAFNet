@@ -74,8 +74,6 @@ def parse(opt_path, is_train=True):
                 if isinstance(dataset['dataroot_lq'], list):
                     for i_path, _ in enumerate(dataset['dataroot_lq']):
                         dataset['dataroot_lq'][i_path] = osp.expanduser(dataset['dataroot_lq'][i_path])
-
-
     # paths
     for key, val in opt['path'].items():
         if (val is not None) and ('resume_state' in key

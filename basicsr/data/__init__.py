@@ -83,7 +83,7 @@ def create_dataloader(dataset,
     """
     phase = dataset_opt['phase']
     rank, _ = get_dist_info()
-    if phase == 'train':
+    if phase.find('train') >=0:
         if dist:  # distributed training
             batch_size = dataset_opt['batch_size_per_gpu']
             num_workers = dataset_opt['num_worker_per_gpu']
