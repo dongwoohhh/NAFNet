@@ -131,20 +131,15 @@ class MVImgNetDataset(data.Dataset):
             #count = 0
             
             #while(std_rgb < 10. or count > 5):
-            max_iter = 5
-            for i_crop in range(max_iter):
-                # random crop
-                #img_gt_crop, img_lq_crop = paired_random_crop_gaussian(img_gt, img_lq, gt_size, scale,
-                #                                                gt_path)
+            
                 
+            img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
+            #std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
                 
-                img_lq_uint8 = (255*img_lq_crop).astype(np.uint8)
-                std_rgb = np.max(np.std(img_lq_uint8, axis=(0,1)))
-                
-                if std_rgb > 20. or i_crop == max_iter - 1:
-                    img_gt_out = img_gt_crop
-                    img_lq_out = img_lq_crop
-                    break
+            
+            img_gt_out = img_gt_crop
+            img_lq_out = img_lq_crop
+            
 
             img_gt = img_gt_out
             img_lq = img_lq_out
@@ -162,12 +157,13 @@ class MVImgNetDataset(data.Dataset):
                                     bgr2rgb=True,
                                     float32=True)
         """
-        idx =  np.random.randint(100000)
+        #idx =  np.random.randint(100000)
+        idx = gt_path.split('/')[-1][:-4]
         #print(img_lq.permute(1, 2, 0).numpy().shape)
         img_lq_uint8 = (255*img_lq.permute(1, 2, 0).numpy()).astype(np.uint8)
         std = np.max(np.std(img_lq_uint8, axis=(0,1)))
-        imageio.imwrite(f'debug/{idx}_blurred_{std_rgb}_{i_crop}.png', img_lq_uint8)
-        imageio.imwrite(f'debug/{idx}_gt_{std_rgb}_{i_crop}.png', (255*img_gt.permute(1, 2, 0).numpy()).astype(np.uint8))
+        imageio.imwrite(f'debug_mvimgnet/{idx}_blurred_{std_rgb}_{i_crop}.png', img_lq_uint8)
+        imageio.imwrite(f'debug_mvimgnet/{idx}_gt_{std_rgb}_{i_crop}.png', (255*img_gt.permute(1, 2, 0).numpy()).astype(np.uint8))
         """
         # normalize
         if self.mean is not None or self.std is not None:
